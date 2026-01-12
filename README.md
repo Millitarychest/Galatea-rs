@@ -9,11 +9,14 @@ This project was inspired by a [this post on sensepost.com](https://sensepost.co
 
 
 
-## How to run
+### How to run
 > [!CAUTION]
 > **!! NEVER RUN OUTSIDE OF A VM !!**\
 > This is an experimental project written by someone that is an idiot
 > Given that the EDR requires elevate permissions as well as a kernel driver, it can really screw up your PC or at the very least cause it to BSOD
+
+Build the project by running the ```build.ps1``` script to run each project with the needed config. This will create the ```target/dist``` folder containing the files you need.
+ 
 
 
 
