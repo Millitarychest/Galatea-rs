@@ -3,7 +3,7 @@
 use core::panic::PanicInfo;
 
 use wdk_sys::ntddk::*;
-use wdk_sys::{NTSTATUS, PCUNICODE_STRING, PVOID,DRIVER_OBJECT,STATUS_SUCCESS,PEPROCESS,PS_CREATE_NOTIFY_INFO};
+use wdk_sys::{NTSTATUS, PCUNICODE_STRING, PVOID,DRIVER_OBJECT,STATUS_SUCCESS,PEPROCESS,PS_CREATE_NOTIFY_INFO,STATUS_ACCESS_DENIED,UNICODE_STRING};
 
 #[cfg(not(test))]
 extern crate wdk_panic;
@@ -42,30 +42,71 @@ unsafe extern "C" fn process_notify_routine(
     process_id: PVOID,
     create_info: *mut PS_CREATE_NOTIFY_INFO,
 ) {
-    if !create_info.is_null() {
-        unsafe {
-            let info = &*create_info;
-            
-            DbgPrint(
-                b"Galatea: [CREATE] PID: %p | Image: %wZ\0".as_ptr() as *const i8,
-                process_id,
-                &info.ImageFileName
-            );
-
-            if !(*info.CommandLine).Buffer.is_null() {
+    unsafe {
+        if let Some(info) = create_info.as_mut() {
+                
                 DbgPrint(
-                    b"         -> CmdLine: %wZ\0".as_ptr() as *const i8,
-                    &info.CommandLine
+                    b"Galatea: [CREATE] PID: %p | Image: %wZ\0".as_ptr() as *const i8,
+                    process_id,
+                    info.ImageFileName
                 );
-            }
+
+                if !(*info.CommandLine).Buffer.is_null() {
+                    DbgPrint(
+                        b"         -> CmdLine: %wZ\0".as_ptr() as *const i8,
+                        info.CommandLine
+                    );
+                }
+
+
+                let target_name_u16 = w!("\\??\\C:\\Program Files\\WindowsApps\\Microsoft.WindowsNotepad_11.2508.38.0_x64__8wekyb3d8bbwe\\Notepad\\Notepad.exe");
+                let mut target_unicode = UNICODE_STRING {
+                    Length: (target_name_u16.len() * 2) as u16,
+                    MaximumLength: (target_name_u16.len() * 2) as u16,
+                    Buffer: target_name_u16.as_ptr() as *mut _,
+                };
+                let matched = RtlEqualUnicodeString(info.ImageFileName, &mut target_unicode, 1);
+
+                if matched == 1 {
+                    DbgPrint(
+                        b"Galatea: [BLOCK] Notepad.exe detected. Blocking execution\0".as_ptr() as *const i8,
+                    );
+                    info.CreationStatus = STATUS_ACCESS_DENIED;
+                }
+
+        } else {
+            DbgPrint(b"Galatea: [EXIT]  PID: %p\0".as_ptr() as *const i8, process_id);
         }
-    } else {
-        DbgPrint(b"Galatea: [EXIT]  PID: %p\0".as_ptr() as *const i8, process_id);
     }
 }
+
+// ------ Helpers
+
+// --- Helper Macro for Wide Strings (L"notepad.exe") ---
+#[macro_export]
+macro_rules! w {
+    ($s:expr) => {
+        {
+            const S: &[u16] = &{
+                let bs = $s.as_bytes();
+                let mut out = [0u16; $s.len()];
+                let mut i = 0;
+                while i < $s.len() {
+                    out[i] = bs[i] as u16;
+                    i += 1;
+                }
+                out
+            };
+            S
+        }
+    };
+}
+
 
 // ------ Stubs
 
 #[allow(dead_code)]
 fn main() {}
+
+
 

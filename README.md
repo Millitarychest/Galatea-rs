@@ -17,6 +17,14 @@ This project was inspired by a [this post on sensepost.com](https://sensepost.co
 
 Build the project by running the ```build.ps1``` script to run each project with the needed config. This will create the ```target/dist``` folder containing the files you need.
  
+Follow the steps below to run the EDR. (Admin rights are required)
+1. Setup your VM to allow self-signed drivers via ``bcdedit /set testsigning on`` ``bcdedit -debug on`` 
+2. Start the agent by running ``Agent.exe``. This should automatically setup and start the driver aswell
+3. (Optional) Currently to receive all output it is recommended to run ``Dbgview.exe`` and enable ``Capture Kernel``
+
+To stop the EDR:
+1. Stop the agent by pressing ```ctrl+c``` the agent will then run a few short clean ups and exit
+2. (Optional) To fully disable and delete the current edr version remove the service using: ``sc.exe stop "Galatea Driver"`` and ``sc.exe delete "Galatea Driver"``
 
 ### Prerequisites:
 [cargo-make](https://github.com/sagiegurari/cargo-make)
