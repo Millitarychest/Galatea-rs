@@ -8,6 +8,13 @@ crate-type = ["cdylib"]
 harness = false
 
 [dependencies]
+wdk = "0.4.1"
+wdk-alloc = "0.4.1"
+wdk-panic = "0.4.1"
+wdk-sys = "0.5.1"
+
+[build-dependencies]
+wdk-build = "0.5.1"
 
 [features]
 default = []
@@ -17,3 +24,7 @@ panic = "abort"
 
 [profile.release]
 panic = "abort"
+
+[package.metadata.wdk.driver-model]
+target-version = "10.0.26100.0"
+driver-type = "WDM"

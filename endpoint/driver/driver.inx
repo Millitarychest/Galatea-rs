@@ -1,0 +1,42 @@
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = System
+ClassGuid   = {4d36e97d-e325-11ce-bfc1-08002be10318}
+Provider    = %ProviderString%
+PnpLockDown = 1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+driver.sys  = 1,,
+
+; ================= Install Section =================
+
+[DefaultInstall.NT$ARCH$]
+CopyFiles = Galatea_CopyFiles
+
+[Galatea_CopyFiles]
+driver.sys
+
+; ================= Service Section =================
+
+[DefaultInstall.NT$ARCH$.Services]
+AddService = Galatea,0,Galatea_Service_Inst
+
+[Galatea_Service_Inst]
+DisplayName    = %Galatea.SVCDESC%
+ServiceType    = 1               ; SERVICE_KERNEL_DRIVER
+StartType      = 3               ; SERVICE_DEMAND_START
+ErrorControl   = 1               ; SERVICE_ERROR_NORMAL
+ServiceBinary  = %13%\driver.sys
+
+; ================= Strings Section =================
+
+[Strings]
+ProviderString = "Galatea-RS Project"
+DiskName       = "Galatea Installation Disk"
+Galatea.SVCDESC = "Galatea Kernel Sentinel"

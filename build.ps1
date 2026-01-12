@@ -8,7 +8,7 @@ $DriverName = "driver"
 $AgentName = "agent.exe"
 $HookDllName = "hook.dll"
 
-$DriverTargetDir  = "target\x86_64-pc-windows-msvc\release"
+$DriverTargetDir  = "target\x86_64-pc-windows-msvc\debug"
 $GeneralDebugTargetDir  = "target\debug"
 $GeneralReleaseTargetDir  = "target\release"
 # --- Driver build
@@ -16,7 +16,8 @@ Write-Host "`n[i] Starting Galatea Driver Build..." -ForegroundColor Cyan
 Push-Location $DriverPath
 try {
     Write-Host "[>>] Compiling Kernel Driver (Release)..."
-    cargo build --release --lib 
+    #cargo build --release --lib 
+    cargo make
 }
 catch {
     Write-Error "[!] Compilation Failed!"
@@ -26,15 +27,15 @@ catch {
 Pop-Location
 
 Write-Host "[>>] Moving and renaming artifact..."
-$DllPath = "$DriverTargetDir\$DriverName.dll"
-$SysPath = "$DistDir\$DriverName.sys"
+$DllPath = "$DriverTargetDir\driver_package\*"
+$SysPath = "$DistDir"
 
 if (!(Test-Path $DistDir)) {
     New-Item -ItemType Directory -Force -Path $DistDir | Out-Null
 }
 
 if (Test-Path $DllPath) {
-    Copy-Item $DllPath $SysPath -Force
+    Copy-Item -Path $DllPath -Destination $SysPath -Force -Recurse
     Write-Host "`n[+] Driver built at: $SysPath" -ForegroundColor Green
 } else {
     Write-Error "[+] Build finished but output file not found at $DllPath"

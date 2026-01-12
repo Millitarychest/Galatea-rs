@@ -18,7 +18,8 @@ This project was inspired by a [this post on sensepost.com](https://sensepost.co
 Build the project by running the ```build.ps1``` script to run each project with the needed config. This will create the ```target/dist``` folder containing the files you need.
  
 
-
+### Prerequisites:
+[cargo-make](https://github.com/sagiegurari/cargo-make)
 
 ### References
 [\[1\] SensePost \| Sensecon 23: from windows drivers to an almost fully working edr](https://sensepost.com/blog/2024/sensecon-23-from-windows-drivers-to-an-almost-fully-working-edr/)

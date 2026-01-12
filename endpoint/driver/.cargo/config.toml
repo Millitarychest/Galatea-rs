@@ -1,9 +1,7 @@
 [build]
 target = "x86_64-pc-windows-msvc"
 
-[unstable]
-build-std = ["core", "alloc", "compiler_builtins"]
-build-std-features = ["compiler-builtins-mem"]
+
 
 [target.x86_64-pc-windows-msvc]
 rustflags = [
@@ -17,6 +15,7 @@ rustflags = [
     "-Z", "pre-link-arg=/MANIFEST:NO",
 
     # Post Link Args
+    "-C", "target-feature=+crt-static",
     "-C", "link-arg=/OPT:REF,ICF",
     "-C", "link-arg=/ENTRY:driver_entry",
     "-C", "link-arg=/MERGE:.edata=.rdata",
