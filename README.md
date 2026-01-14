@@ -26,8 +26,12 @@ To stop the EDR:
 1. Stop the agent by pressing ```ctrl+c``` the agent will then run a few short clean ups and exit
 2. (Optional) To fully disable and delete the current edr version remove the service using: ``sc.exe stop "Galatea Driver"`` and ``sc.exe delete "Galatea Driver"``
 
+## Screenshots:
+**Agent Output:**
+![Agent Output](static/images/agent_output.png "Agent Output")
+
 ### Prerequisites:
-[cargo-make](https://github.com/sagiegurari/cargo-make)
+[cargo-make](https://github.com/sagiegurari/cargo-make) is required for building the driver
 
 ### References
 [\[1\] SensePost \| Sensecon 23: from windows drivers to an almost fully working edr](https://sensepost.com/blog/2024/sensecon-23-from-windows-drivers-to-an-almost-fully-working-edr/)

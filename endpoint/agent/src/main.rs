@@ -1,10 +1,19 @@
-use std::{env, path::{Path, PathBuf}, thread, time::Duration};
+use std::{env, path::{Path, PathBuf}, sync::atomic::{AtomicUsize, Ordering}};
 
-use mimic_core::{error, mimic_error, mimic_log, mimic_success, privilege, shell};
+use windows::{Win32::{Foundation::HANDLE, System::IO::CancelIoEx}, core::w};
+use windows::Win32::Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE};
+use windows::Win32::Storage::FileSystem::{CreateFileW, FILE_ATTRIBUTE_NORMAL, OPEN_EXISTING, FILE_SHARE_READ, FILE_SHARE_WRITE};
+use windows::Win32::System::IO::DeviceIoControl;
+use std::ffi::c_void;
+use std::mem::size_of;
 
+use mimic_core::{error, mimic_bail, mimic_error, mimic_log, mimic_success, privilege, shell};
+use shared::{GalateaEvent, IOCTL_GET_EVENT};
 
 const DRIVER_SERVICE_NAME: &str = "Galatea";
 const DRIVER_FILE_NAME: &str = "driver.sys";
+
+static GLOBAL_DEVICE_HANDLE: AtomicUsize = AtomicUsize::new(0);
 
 fn main() -> error::Result<()>{
     mimic_log!("Initializing Galatea Agent...");
@@ -13,23 +22,94 @@ fn main() -> error::Result<()>{
         ctrlc::set_handler(move || {
             mimic_log!("[DEV] Ctrl+C Detected! Initiating cleanup...");
             
-            // Run cleanup logic
-            let _ = stop_driver_service(DRIVER_SERVICE_NAME);
-            let _ = uninstall_driver_service(DRIVER_SERVICE_NAME);
+            let handle_val = GLOBAL_DEVICE_HANDLE.load(Ordering::SeqCst);
+
+            if handle_val != 0 {
+                let handle = HANDLE(handle_val as *mut c_void);
+                unsafe {
+                    let _ = CancelIoEx(handle, None);
+                }
+            }
             
-            mimic_success!("[DEV] Cleanup Complete. Exiting.");
-            std::process::exit(0);
         }).expect("Error setting Ctrl-C handler");
     }
 
     init()?;
 
+    // Event loop
+    let device_name = w!("\\\\.\\Galatea");
+    
+    let device_handle = unsafe {
+        CreateFileW(
+            device_name,
+            (GENERIC_READ | GENERIC_WRITE).0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            None,
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            None,
+        )
+    };
+
+    let device_handle = match device_handle {
+        Ok(h) => h,
+        Err(e) => {
+            mimic_error!("Failed to open handle to driver. Is the driver loaded?");
+            mimic_error!("Error: {:?}", e);
+            cleanup();
+            mimic_bail!("Could not open driver handle");
+        }
+    };
+
+    GLOBAL_DEVICE_HANDLE.store(device_handle.0 as usize, Ordering::SeqCst);
+
     mimic_success!("Galatea Systems: Online");
     mimic_log!("(Press Ctrl+C to stop the agent)");
 
     loop {
-        thread::sleep(Duration::from_secs(5));
+        let mut event: GalateaEvent = unsafe { std::mem::zeroed() };
+        let mut bytes_returned: u32 = 0;
+
+        let result = unsafe {
+            DeviceIoControl(
+                device_handle,
+                IOCTL_GET_EVENT,
+                None,
+                0,
+                Some(&mut event as *mut _ as *mut c_void),
+                size_of::<GalateaEvent>() as u32,
+                Some(&mut bytes_returned),
+                None,
+            )
+        };
+
+        match result {
+            Ok(_) => {
+                let image_path = String::from_utf16_lossy(&event.image_path)
+                    .trim_matches(char::from(0))
+                    .to_string();
+
+                mimic_log!(
+                    "[EVENT] PID: {:<6} | Image: {}", 
+                    event.process_id, 
+                    image_path
+                );
+            },
+            Err(e) => {
+                eprintln!("DeviceIoControl failed: {:?}", e);
+                break;
+            }
+        }
     }
+
+    let _ = unsafe { CloseHandle(device_handle) };
+    cleanup();
+    Ok(())
+}
+
+fn cleanup(){
+    let _ = stop_driver_service(DRIVER_SERVICE_NAME);
+    let _ = uninstall_driver_service(DRIVER_SERVICE_NAME);
 }
 
 fn init()-> error::Result<()>{
