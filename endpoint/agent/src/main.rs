@@ -1,4 +1,4 @@
-use std::{env, path::{Path, PathBuf}, sync::atomic::{AtomicUsize, Ordering}};
+use std::{env, path::PathBuf, sync::atomic::{AtomicUsize, Ordering}};
 
 use windows::{Win32::{Foundation::HANDLE, System::IO::CancelIoEx}, core::w};
 use windows::Win32::Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE};
@@ -7,8 +7,12 @@ use windows::Win32::System::IO::DeviceIoControl;
 use std::ffi::c_void;
 use std::mem::size_of;
 
-use mimic_core::{error, mimic_bail, mimic_error, mimic_log, mimic_success, privilege, shell};
-use shared::{GalateaEvent, IOCTL_GET_EVENT};
+use mimic_core::{error, mimic_bail, mimic_error, mimic_log, mimic_success, privilege};
+use shared::{GalateaEvent, GalateaVerdict, IOCTL_GET_EVENT};
+
+use crate::driver::io::send_verdict;
+
+mod driver;
 
 const DRIVER_SERVICE_NAME: &str = "Galatea";
 const DRIVER_FILE_NAME: &str = "driver.sys";
@@ -94,6 +98,13 @@ fn main() -> error::Result<()>{
                     event.process_id, 
                     image_path
                 );
+
+                let verdict = GalateaVerdict{
+                    process_id: event.process_id,
+                    allow: true,
+                };
+
+                send_verdict(device_handle, verdict);
             },
             Err(e) => {
                 eprintln!("DeviceIoControl failed: {:?}", e);
@@ -108,8 +119,8 @@ fn main() -> error::Result<()>{
 }
 
 fn cleanup(){
-    let _ = stop_driver_service(DRIVER_SERVICE_NAME);
-    let _ = uninstall_driver_service(DRIVER_SERVICE_NAME);
+    let _ = driver::mgmt::stop_driver_service(DRIVER_SERVICE_NAME);
+    let _ = driver::mgmt::uninstall_driver_service(DRIVER_SERVICE_NAME);
 }
 
 fn init()-> error::Result<()>{
@@ -122,13 +133,13 @@ fn init()-> error::Result<()>{
     let driver_path = resolve_driver_path()?;
     mimic_log!("Driver Artifact: {:?}", driver_path);
 
-    if !service_exists(DRIVER_SERVICE_NAME) {
-        install_driver_service(DRIVER_SERVICE_NAME, &driver_path)?;
+    if !driver::mgmt::service_exists(DRIVER_SERVICE_NAME) {
+        driver::mgmt::install_driver_service(DRIVER_SERVICE_NAME, &driver_path)?;
     }
 
-    if !is_service_running(DRIVER_SERVICE_NAME) {
+    if !driver::mgmt::is_service_running(DRIVER_SERVICE_NAME) {
         mimic_log!("Starting Driver Service...");
-        start_driver_service(DRIVER_SERVICE_NAME)?;
+        driver::mgmt::start_driver_service(DRIVER_SERVICE_NAME)?;
     } else {
         mimic_success!("Driver is already active.");
     }
@@ -148,66 +159,3 @@ fn resolve_driver_path() -> Result<PathBuf, String> {
     Err(format!("Could not locate '{}'. Checked local dir and target/dist.", DRIVER_FILE_NAME))
 }
 
-fn service_exists(name: &str) -> bool {
-    shell::run(&format!("sc query {}", name)).is_ok()
-}
-
-fn is_service_running(name: &str) -> bool {
-    match shell::run(&format!("sc query {}", name)) {
-        Ok(output) => output.contains("RUNNING"),
-        Err(_) => false,
-    }
-}
-
-fn install_driver_service(name: &str, path: &Path) -> Result<(), String> {
-    let cmd = format!(
-        "sc create {} type= kernel binPath= \"{}\"", 
-        name, 
-        path.to_string_lossy()
-    );
-
-    match shell::run(&cmd) {
-        Ok(_) => {
-            mimic_success!("Service Installed Successfully.");
-            Ok(())
-        },
-        Err(e) => Err(format!("Failed to install service: {:?}. Cmd: {}", e, cmd))
-    }
-}
-
-fn start_driver_service(name: &str) -> Result<(), String> {
-    match shell::run(&format!("sc start {}", name)) {
-        Ok(_) => {
-            mimic_success!("Driver Started.");
-            Ok(())
-        },
-        Err(e) => {
-            Err(format!("Failed to start service: {:?}. (Is TestSigning enabled?)", e))
-        }
-    }
-}
-
-fn stop_driver_service(name: &str) -> Result<(), String> {
-    mimic_log!("Stopping Service: {}", name);
-    match shell::run(&format!("sc stop {}", name)) {
-        Ok(_) => {
-            mimic_success!("Service Stopped.");
-            Ok(())
-        },
-        Err(e) => {
-            mimic_error!("Could not stop service (might be already stopped): {:?}", e);
-            Ok(())
-        }
-    }
-}
-
-fn uninstall_driver_service(name: &str) -> Result<(), String> {
-    mimic_log!("Removing Service: {}", name);
-    match shell::run(&format!("sc delete {}", name)) {
-        Ok(_) => {
-            mimic_success!("Service Deleted.");
-            Ok(())
-        },
-        Err(e) => Err(format!("Failed to delete service: {:?}", e))
-    }
-}

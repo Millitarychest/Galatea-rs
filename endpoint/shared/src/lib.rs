@@ -11,6 +11,6 @@ pub struct GalateaEvent {
 
 #[repr(C)]
 pub struct GalateaVerdict {
-    pub process_id: u32,
+    pub process_id: u64,
     pub allow: bool,
 }

@@ -5,13 +5,14 @@ use wdk_sys::{DEVICE_OBJECT,IRP,NTSTATUS,KLOCK_QUEUE_HANDLE,
 use wdk_sys::ntddk::{IofCompleteRequest,
     KeAcquireInStackQueuedSpinLock,
     KeReleaseInStackQueuedSpinLock,
-    IoReleaseCancelSpinLock
+    IoReleaseCancelSpinLock,
+    DbgPrint
 };
 
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicPtr, Ordering};
 
-use shared::IOCTL_GET_EVENT;
+use shared::{IOCTL_GET_EVENT, IOCTL_SEND_VERDICT, GalateaVerdict};
 use crate::{PENDING_IRP_LOCK,PENDING_IRP};
 
 pub unsafe extern "C" fn dispatch_create_close(_device: *mut DEVICE_OBJECT, irp: *mut IRP) -> NTSTATUS {
@@ -48,6 +49,30 @@ pub unsafe extern "C" fn dispatch_device_control(_device: *mut DEVICE_OBJECT, ir
 
                 KeReleaseInStackQueuedSpinLock(&mut lock_handle);
                 return STATUS_PENDING;
+            },
+            IOCTL_SEND_VERDICT =>{
+                let stack = io_get_current_irp_stack_location(irp);
+                let input_len = (*stack).Parameters.DeviceIoControl.InputBufferLength as usize;
+
+                if input_len < core::mem::size_of::<GalateaVerdict>() {
+                    (*irp).IoStatus.__bindgen_anon_1.Status = STATUS_UNSUCCESSFUL;
+                    (*irp).IoStatus.Information = 0;
+                    IofCompleteRequest(irp, IO_NO_INCREMENT as i8);
+                    return STATUS_UNSUCCESSFUL;
+                }
+
+                let verdict_data = &*((*irp).AssociatedIrp.SystemBuffer as *const GalateaVerdict);
+                let pid = verdict_data.process_id;
+                let allowed = verdict_data.allow;
+
+                DbgPrint(b"Galatea: Received Verdict for PID: %d -> %d\0".as_ptr() as *const i8, pid, allowed as i32);
+                let found = crate::apc::apply_verdict(pid, allowed);
+
+                let status = if found { STATUS_SUCCESS } else { STATUS_UNSUCCESSFUL };
+                (*irp).IoStatus.__bindgen_anon_1.Status = status;
+                (*irp).IoStatus.Information = 0;
+                IofCompleteRequest(irp, IO_NO_INCREMENT as i8);
+                return status;
             },
             _ => {
                 (*irp).IoStatus.__bindgen_anon_1.Status = STATUS_INVALID_DEVICE_REQUEST;

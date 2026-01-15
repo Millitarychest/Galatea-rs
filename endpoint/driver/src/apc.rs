@@ -6,7 +6,7 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use wdk_sys::_KWAIT_REASON::Suspended;
 use wdk_sys::_MODE::{KernelMode, UserMode};
 use wdk_sys::{_EVENT_TYPE, HANDLE, KAPC, KEVENT, KLOCK_QUEUE_HANDLE, KPROCESSOR_MODE, PETHREAD, PVOID, STATUS_ACCESS_DENIED, STATUS_SUCCESS, LARGE_INTEGER};
-use wdk_sys::ntddk::{KeAcquireInStackQueuedSpinLock, KeInitializeEvent, KeReleaseInStackQueuedSpinLock, KeWaitForSingleObject, ObfDereferenceObject, PsLookupThreadByThreadId, DbgPrint, ZwTerminateProcess};
+use wdk_sys::ntddk::{DbgPrint, KeAcquireInStackQueuedSpinLock, KeInitializeEvent, KeReleaseInStackQueuedSpinLock, KeSetEvent, KeWaitForSingleObject, ObfDereferenceObject, PsLookupThreadByThreadId, ZwTerminateProcess};
 
 use crate::{PENDING_SCANS_LOCK,PENDING_SCANS, PendingScan};
 
@@ -167,6 +167,28 @@ unsafe extern "C" fn apc_normal_routine(
         APC_COUNT.fetch_sub(1, Ordering::SeqCst);
     }
 }
+
+// helpers
+pub unsafe fn apply_verdict(pid: u64, allow: bool) -> bool {
+    unsafe {
+        let mut found = false;
+        let mut lock_handle: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
+
+        KeAcquireInStackQueuedSpinLock(addr_of_mut!(crate::PENDING_SCANS_LOCK), &mut lock_handle);
+
+        if let Some(list) = (*addr_of_mut!(crate::PENDING_SCANS)).as_mut() {
+            if let Some(item) = list.iter_mut().find(|x| x.pid == pid) {
+                item.verdict = if allow { STATUS_SUCCESS } else { STATUS_ACCESS_DENIED };
+                KeSetEvent(item.event_ptr, 0, 0);
+                found = true;
+            }
+        }
+
+        KeReleaseInStackQueuedSpinLock(&mut lock_handle);
+        found
+    }
+}
+
 
 //stubs 
 unsafe extern "C" {
