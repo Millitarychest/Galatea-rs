@@ -12,7 +12,7 @@ use core::ffi::c_void;
 use core::sync::atomic::{AtomicPtr, Ordering};
 
 use shared::IOCTL_GET_EVENT;
-use crate::{EVENT_LOCK,PENDING_IRP};
+use crate::{PENDING_IRP_LOCK,PENDING_IRP};
 
 pub unsafe extern "C" fn dispatch_create_close(_device: *mut DEVICE_OBJECT, irp: *mut IRP) -> NTSTATUS {
     unsafe {
@@ -31,7 +31,7 @@ pub unsafe extern "C" fn dispatch_device_control(_device: *mut DEVICE_OBJECT, ir
         match control_code {
             IOCTL_GET_EVENT => {
                 let mut lock_handle: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
-                KeAcquireInStackQueuedSpinLock(&raw mut EVENT_LOCK, &mut lock_handle);
+                KeAcquireInStackQueuedSpinLock(&raw mut PENDING_IRP_LOCK, &mut lock_handle);
 
                 if !PENDING_IRP.is_null() {
                     KeReleaseInStackQueuedSpinLock(&mut lock_handle);
@@ -62,7 +62,7 @@ pub unsafe extern "C" fn dispatch_device_control(_device: *mut DEVICE_OBJECT, ir
 pub unsafe extern "C" fn dispatch_cleanup(_device: *mut DEVICE_OBJECT, irp: *mut IRP) -> NTSTATUS {
     unsafe {
         let mut lock_handle: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
-        KeAcquireInStackQueuedSpinLock(&raw mut EVENT_LOCK, &mut lock_handle);
+        KeAcquireInStackQueuedSpinLock(&raw mut PENDING_IRP_LOCK, &mut lock_handle);
 
         if !PENDING_IRP.is_null() {
             (*PENDING_IRP).IoStatus.__bindgen_anon_1.Status = wdk_sys::STATUS_CANCELLED;
@@ -87,7 +87,7 @@ pub unsafe extern "C" fn cancel_routine(_device: *mut DEVICE_OBJECT, irp: *mut I
         IoReleaseCancelSpinLock((*irp).CancelIrql);
 
         let mut lock_handle: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
-        KeAcquireInStackQueuedSpinLock(&raw mut EVENT_LOCK, &mut lock_handle);
+        KeAcquireInStackQueuedSpinLock(&raw mut PENDING_IRP_LOCK, &mut lock_handle);
 
         if PENDING_IRP == irp {
             PENDING_IRP = core::ptr::null_mut();

@@ -1,6 +1,5 @@
 use wdk_sys::{
-    KLOCK_QUEUE_HANDLE,IO_NO_INCREMENT,STATUS_ACCESS_DENIED,PS_CREATE_NOTIFY_INFO,PVOID,
-    STATUS_SUCCESS, UNICODE_STRING, PEPROCESS
+    BOOLEAN, HANDLE, IO_NO_INCREMENT, KLOCK_QUEUE_HANDLE, PCUNICODE_STRING, PEPROCESS, PS_CREATE_NOTIFY_INFO, PVOID, STATUS_ACCESS_DENIED, STATUS_SUCCESS, UNICODE_STRING
 };
 use wdk_sys::ntddk::{
     IofCompleteRequest,
@@ -12,7 +11,7 @@ use wdk_sys::ntddk::{
 
 use shared::GalateaEvent;
 use crate::ioctl::{io_get_current_irp_stack_location,io_set_cancel_routine};
-use crate::{PENDING_IRP, EVENT_LOCK, w};
+use crate::{PENDING_IRP, PENDING_IRP_LOCK, TARGET_LOCK, TARGET_PIDS, apc, w};
 
 pub unsafe extern "C" fn process_notify_routine(
     _process: PEPROCESS,
@@ -27,17 +26,14 @@ pub unsafe extern "C" fn process_notify_routine(
                 return;
             }
         };
-
         if info.ImageFileName.is_null() {
             return;
         }
-
         DbgPrint(
             b"Galatea: [CREATE] PID: %p | Image: %wZ\0".as_ptr() as *const i8,
             process_id,
             info.ImageFileName
         );
-
         if !info.CommandLine.is_null() && !(*info.CommandLine).Buffer.is_null() {
             DbgPrint(
                 b"         -> CmdLine: %wZ\0".as_ptr() as *const i8,
@@ -45,6 +41,7 @@ pub unsafe extern "C" fn process_notify_routine(
             );
         }
 
+        // Test blocking 
         let target_name_u16 = w!("\\??\\C:\\Program Files\\WindowsApps\\Microsoft.WindowsNotepad_11.2508.38.0_x64__8wekyb3d8bbwe\\Notepad\\Notepad.exe");
         let mut target_unicode = UNICODE_STRING {
             Length: (target_name_u16.len() * 2) as u16,
@@ -52,7 +49,6 @@ pub unsafe extern "C" fn process_notify_routine(
             Buffer: target_name_u16.as_ptr() as *mut _,
         };
         let matched = RtlEqualUnicodeString(info.ImageFileName, &mut target_unicode, 1);
-
         if matched == 1 {
             DbgPrint(
                 b"Galatea: [BLOCK] Notepad.exe detected. Blocking execution\0".as_ptr() as *const i8,
@@ -60,10 +56,60 @@ pub unsafe extern "C" fn process_notify_routine(
             info.CreationStatus = STATUS_ACCESS_DENIED;
         }
 
-        // --- Event Notification Logic ---
+        // PREP FOR SCAN
+        {
+            let mut lock: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
+            KeAcquireInStackQueuedSpinLock(&raw mut TARGET_LOCK, &mut lock);
 
+            let ptr = core::ptr::addr_of_mut!(TARGET_PIDS);
+            if let Some(list) = (*ptr).as_mut() {
+                list.push(process_id as u64);
+            }
+            KeReleaseInStackQueuedSpinLock(&mut lock);
+        }
+
+        // Agent IO
+        notify_agent(process_id as u64, info.ImageFileName);
+    }
+}
+
+pub unsafe extern "C" fn thread_notify_routine(
+    process_id: HANDLE,
+    thread_id: HANDLE,
+    create: BOOLEAN,
+) {
+    if create == 0 { return;}
+    unsafe {
+        let pid = process_id as u64;
+        let should_inject = {
+            let mut lock: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
+            let mut found = false;
+            KeAcquireInStackQueuedSpinLock(&raw mut TARGET_LOCK, &mut lock);
+            let ptr = core::ptr::addr_of_mut!(TARGET_PIDS);
+            if let Some(list) = (*ptr).as_mut() {
+                if let Some(idx) = list.iter().position(|&x| x == pid) {
+                    list.remove(idx); 
+                    found = true;
+                }
+            }
+            KeReleaseInStackQueuedSpinLock(&mut lock);
+            found
+        };
+
+        if should_inject {
+            DbgPrint(b"Galatea: Injecting APC into PID %p\0".as_ptr() as *const i8, process_id);
+            apc::inject_freeze_apc(thread_id, pid);
+        }
+    }
+}
+
+
+// Helpers
+
+unsafe fn notify_agent(pid: u64, image: PCUNICODE_STRING){
+    unsafe {
         let mut lock_handle: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
-        KeAcquireInStackQueuedSpinLock(&raw mut EVENT_LOCK, &mut lock_handle);
+        KeAcquireInStackQueuedSpinLock(&raw mut PENDING_IRP_LOCK, &mut lock_handle);
 
         if !PENDING_IRP.is_null() {
             let irp = PENDING_IRP;
@@ -78,11 +124,11 @@ pub unsafe extern "C" fn process_notify_routine(
                     let dst_event = &mut *((*irp).AssociatedIrp.SystemBuffer as *mut GalateaEvent);
 
                     core::ptr::write_bytes(dst_event as *mut GalateaEvent, 0, 1);
-                    dst_event.process_id = process_id as u64;
-                    let src_buffer = (*info.ImageFileName).Buffer;
+                    dst_event.process_id = pid;
+                    let src_buffer = (*image).Buffer;
 
                     if !src_buffer.is_null() {
-                        let src_len = ((*info.ImageFileName).Length / 2) as usize;
+                        let src_len = ((*image).Length / 2) as usize;
                         let max_len = dst_event.image_path.len() - 1;
                         let copy_len = if src_len > max_len { max_len } else { src_len };
 
