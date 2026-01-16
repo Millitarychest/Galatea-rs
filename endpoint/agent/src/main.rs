@@ -15,15 +15,17 @@ use shared::{GalateaEvent, IOCTL_GET_EVENT};
 mod driver;
 mod db;
 mod analyzer;
+mod utils;
 
 use crate::driver::DriverHandle;
 
 const DRIVER_SERVICE_NAME: &str = "Galatea";
 const DRIVER_FILE_NAME: &str = "driver.sys";
-const DB_FILE_NAME: &str = "signatures.db";
+const DB_FILE_NAME: &str = "galatea_dataset.db";
 
+const MAL_IOC_BLOCK_THRESHOLD: i32 = 50;
 
-static GLOBAL_DEVICE_HANDLE: AtomicUsize = AtomicUsize::new(0);
+static GLOBAL_LISTENER_HANDLE: AtomicUsize = AtomicUsize::new(0);
 
 
 fn main() -> error::Result<()>{
@@ -33,7 +35,7 @@ fn main() -> error::Result<()>{
         ctrlc::set_handler(move || {
             mimic_log!("[DEV] Ctrl+C Detected! Initiating cleanup...");
             
-            let handle_val = GLOBAL_DEVICE_HANDLE.load(Ordering::SeqCst);
+            let handle_val = GLOBAL_LISTENER_HANDLE.load(Ordering::SeqCst);
 
             if handle_val != 0 {
                 let handle = HANDLE(handle_val as *mut c_void);
@@ -49,7 +51,10 @@ fn main() -> error::Result<()>{
 
     
     // Setup Database Connection
-    let db_path = env::current_dir().unwrap().join(DB_FILE_NAME); // TODO: change
+    let current_exe = env::current_exe().map_err(|e| e.to_string())?;
+    let current_dir = current_exe.parent().unwrap();
+
+    let db_path = current_dir.join(DB_FILE_NAME);
     let db_pool = db::init_db_pool(db_path.to_str().unwrap())?;
     mimic_success!("Knowledge Base (Signatures) Loaded.");
 
@@ -61,7 +66,7 @@ fn main() -> error::Result<()>{
 
     // Event loop
     let device_name = w!("\\\\.\\Galatea");
-    let device_handle = unsafe {
+    let listener_handle = unsafe {
         CreateFileW(
             device_name,
             (GENERIC_READ | GENERIC_WRITE).0,
@@ -73,7 +78,7 @@ fn main() -> error::Result<()>{
         )
     };
 
-    let device_handle = match device_handle {
+    let listener_handle = match listener_handle {
         Ok(h) => h,
         Err(e) => {
             mimic_error!("Failed to open handle to driver. Is the driver loaded?");
@@ -83,17 +88,40 @@ fn main() -> error::Result<()>{
         }
     };
 
-    GLOBAL_DEVICE_HANDLE.store(device_handle.0 as usize, Ordering::SeqCst);
+    let control_handle = unsafe {
+        CreateFileW(
+            device_name,
+            (GENERIC_READ | GENERIC_WRITE).0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            None,
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            None,
+        )
+    };
 
-    if let Err(_) = driver::io::register_agent(device_handle) {
+    let control_handle = match control_handle {
+        Ok(h) => h,
+        Err(_) => {
+            mimic_error!("Failed to open control handle.");
+            unsafe { let _ = CloseHandle(listener_handle);};
+            cleanup();
+            mimic_bail!("Could not open control handle");
+        }
+    };
+
+    GLOBAL_LISTENER_HANDLE.store(listener_handle.0 as usize, Ordering::SeqCst);
+
+    if let Err(_) = driver::io::register_agent(control_handle) {
         mimic_error!("CRITICAL: Agent Registration Failed.");
         mimic_error!("This usually means another Agent instance is already running.");
-        let _ = unsafe { CloseHandle(device_handle) };
+        let _ = unsafe { CloseHandle(listener_handle) };
+        let _ = unsafe { CloseHandle(control_handle) };
         cleanup();
         mimic_bail!("Registration Handshake Failed");
     }
 
-    let safe_handle = DriverHandle(device_handle);
+    let safe_handle = DriverHandle(control_handle);
 
     mimic_success!("Galatea Systems: Online");
     mimic_log!("(Press Ctrl+C to stop the agent)");
@@ -104,7 +132,7 @@ fn main() -> error::Result<()>{
 
         let result = unsafe {
             DeviceIoControl(
-                device_handle,
+                listener_handle,
                 IOCTL_GET_EVENT,
                 None,
                 0,
@@ -132,7 +160,8 @@ fn main() -> error::Result<()>{
         }
     }
 
-    let _ = unsafe { CloseHandle(device_handle) };
+    let _ = unsafe { CloseHandle(listener_handle) };
+    let _ = unsafe { CloseHandle(control_handle) };
     cleanup();
     Ok(())
 }

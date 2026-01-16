@@ -11,6 +11,7 @@ $HookDllName = "hook.dll"
 $DriverTargetDir  = "target\x86_64-pc-windows-msvc\debug"
 $GeneralDebugTargetDir  = "target\debug"
 $GeneralReleaseTargetDir  = "target\release"
+$AssetDir = "static\assets\*"
 # --- Driver build
 Write-Host "`n[i] Starting Galatea Driver Build..." -ForegroundColor Cyan
 Push-Location $DriverPath
@@ -61,3 +62,8 @@ cargo build -p hook
 $DllBuildPath = "$GeneralDebugTargetDir\$HookDllName"
 $DllDistPath = "$DistDir\$HookDllName"
 Copy-Item $DllBuildPath $DllDistPath -Force
+
+# --- Copy static assets
+
+Write-Host "`n[i] Gathering provided assets..." -ForegroundColor Cyan
+Copy-Item -Path $AssetDir -Destination $DistDir -Force -Recurse

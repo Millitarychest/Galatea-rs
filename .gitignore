@@ -59,3 +59,6 @@ $RECYCLE.BIN/
 
 # Built Visual Studio Code Extensions
 *.vsix
+
+# Dataset (is to large :C)
+galatea_dataset.db

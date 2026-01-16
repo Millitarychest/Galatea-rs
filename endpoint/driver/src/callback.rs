@@ -44,7 +44,7 @@ pub unsafe extern "C" fn process_notify_routine(
             );
         }
 
-        // Test blocking 
+        /* Test blocking 
         let target_name_u16 = w!("\\??\\C:\\Program Files\\WindowsApps\\Microsoft.WindowsNotepad_11.2508.38.0_x64__8wekyb3d8bbwe\\Notepad\\Notepad.exe");
         let mut target_unicode = UNICODE_STRING {
             Length: (target_name_u16.len() * 2) as u16,
@@ -58,7 +58,8 @@ pub unsafe extern "C" fn process_notify_routine(
             );
             info.CreationStatus = STATUS_ACCESS_DENIED;
         }
-
+         */
+        
         let req_id = REQUEST_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
         let fastpass = is_allowlisted_static(info.ImageFileName);
         // PREP FOR SCAN

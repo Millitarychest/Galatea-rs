@@ -126,6 +126,7 @@ unsafe extern "C" fn apc_normal_routine(
     unsafe {
         let ctx_ptr = normal_context as *mut FreezeApcCtx;
         let ctx = &mut *ctx_ptr;
+        let mut should_terminate = false;
 
         // Early exit: Agent beat us:
         let early_verdict = check_early_verdict(ctx.pid);
@@ -143,10 +144,7 @@ unsafe extern "C" fn apc_normal_routine(
             }
 
             if v != STATUS_SUCCESS {
-                let _ = Box::from_raw(ctx_ptr);
-                APC_COUNT.fetch_sub(1, Ordering::SeqCst);
-        
-                let _ = ZwTerminateProcess(core::ptr::null_mut(), STATUS_ACCESS_DENIED);
+                should_terminate = true;
             }
         }
         else{
@@ -179,15 +177,12 @@ unsafe extern "C" fn apc_normal_routine(
             }
 
             if status == wdk_sys::STATUS_TIMEOUT {
-                DbgPrint(b"Galatea: Timeout waiting for agent. Terminating.\0".as_ptr() as *const i8);
+                DbgPrint(b"Galatea: Timeout waiting for agent in Proc %x. Terminating.\0".as_ptr() as *const i8, ctx.pid);
                 // TODO: Make dependen on agent status (If agent is registered fail-> block else allow so task manager etc or the agent can start)
                 //ZwTerminateProcess(core::ptr::null_mut(), STATUS_ACCESS_DENIED);
             } else if verdict != STATUS_SUCCESS {
-                let _ = Box::from_raw(ctx_ptr);
-                APC_COUNT.fetch_sub(1, Ordering::SeqCst);
-        
                 DbgPrint(b"Galatea: BLOCK verdict received. Terminating.\0".as_ptr() as *const i8);            
-                let _ = ZwTerminateProcess(core::ptr::null_mut(), STATUS_ACCESS_DENIED);
+                should_terminate = true;
             } else {
                 DbgPrint(b"Galatea: ALLOW verdict received. Resuming.\0".as_ptr() as *const i8);
             }
@@ -195,6 +190,11 @@ unsafe extern "C" fn apc_normal_routine(
 
         let _ = Box::from_raw(ctx_ptr);
         APC_COUNT.fetch_sub(1, Ordering::SeqCst);
+
+        if should_terminate {
+            let current_process = !0 as *mut c_void; 
+            let _ = ZwTerminateProcess(current_process, STATUS_ACCESS_DENIED);
+        }
     }
 }
 

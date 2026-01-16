@@ -39,18 +39,30 @@ pub unsafe extern "C" fn dispatch_device_control(_device: *mut DEVICE_OBJECT, ir
 
         match control_code {
             IOCTL_GET_EVENT => {
-                let mut lock_handle: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
+                let mut irp_lock_handle: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
+                let mut queue_lock_handle: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
                 let mut queued_event: Option<GalateaEvent> = None;
 
-                KeAcquireInStackQueuedSpinLock(addr_of_mut!(crate::QUEUE_LOCK), &mut lock_handle);
+                KeAcquireInStackQueuedSpinLock(&raw mut PENDING_IRP_LOCK, &mut irp_lock_handle);
+
+                if !PENDING_IRP.is_null() {
+                    KeReleaseInStackQueuedSpinLock(&mut irp_lock_handle);
+                    (*irp).IoStatus.__bindgen_anon_1.Status = STATUS_UNSUCCESSFUL;
+                    (*irp).IoStatus.Information = 0;
+                    IofCompleteRequest(irp, IO_NO_INCREMENT as i8);
+                    return STATUS_UNSUCCESSFUL;
+                }
+
+                KeAcquireInStackQueuedSpinLock(addr_of_mut!(crate::QUEUE_LOCK), &mut queue_lock_handle);
                 if let Some(q) = (*addr_of_mut!(crate::EVENT_QUEUE)).as_mut() {
                     if !q.is_empty() {
                         queued_event = Some(q.remove(0));
                     }
                 }
-                KeReleaseInStackQueuedSpinLock(&mut lock_handle);
-
+                KeReleaseInStackQueuedSpinLock(&mut queue_lock_handle);
                 if let Some(evt) = queued_event {
+                    KeReleaseInStackQueuedSpinLock(&mut irp_lock_handle);
+
                     let stack = io_get_current_irp_stack_location(irp);
                     let output_len = (*stack).Parameters.DeviceIoControl.OutputBufferLength as usize;
                     if output_len >= core::mem::size_of::<GalateaEvent>() {
@@ -58,29 +70,18 @@ pub unsafe extern "C" fn dispatch_device_control(_device: *mut DEVICE_OBJECT, ir
                         *buffer = evt;
                         (*irp).IoStatus.Information = core::mem::size_of::<GalateaEvent>() as u64;
                         (*irp).IoStatus.__bindgen_anon_1.Status = STATUS_SUCCESS;
-                    }else {
+                    } else {
                         (*irp).IoStatus.__bindgen_anon_1.Status = wdk_sys::STATUS_BUFFER_TOO_SMALL;
                     }
                     IofCompleteRequest(irp, IO_NO_INCREMENT as i8);
                     return STATUS_SUCCESS;
                 }
-
-                let mut lock_handle: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
-                KeAcquireInStackQueuedSpinLock(&raw mut PENDING_IRP_LOCK, &mut lock_handle);
-                if !PENDING_IRP.is_null() {
-                    KeReleaseInStackQueuedSpinLock(&mut lock_handle);
-                    (*irp).IoStatus.__bindgen_anon_1.Status = STATUS_UNSUCCESSFUL;
-                    (*irp).IoStatus.Information = 0;
-                    IofCompleteRequest(irp, IO_NO_INCREMENT as i8);
-                    return STATUS_UNSUCCESSFUL;
-                }
-
+                
                 io_mark_irp_pending(irp);
                 PENDING_IRP = irp;
-
                 io_set_cancel_routine(irp, Some(cancel_routine));
 
-                KeReleaseInStackQueuedSpinLock(&mut lock_handle);
+                KeReleaseInStackQueuedSpinLock(&mut irp_lock_handle);
                 return STATUS_PENDING;
             },
             IOCTL_SEND_VERDICT =>{
@@ -195,13 +196,11 @@ pub unsafe extern "C" fn cancel_routine(_device: *mut DEVICE_OBJECT, irp: *mut I
 
         if PENDING_IRP == irp {
             PENDING_IRP = core::ptr::null_mut();
-            // Claim ownership, but DO NOT complete here.
             irp_to_complete = irp;
         }
 
         KeReleaseInStackQueuedSpinLock(&mut lock_handle);
 
-        // Complete OUTSIDE the lock
         if !irp_to_complete.is_null() {
             (*irp_to_complete).IoStatus.__bindgen_anon_1.Status = wdk_sys::STATUS_CANCELLED;
             (*irp_to_complete).IoStatus.Information = 0;
