@@ -2,6 +2,7 @@
 
 pub const IOCTL_GET_EVENT: u32 = 0x80002000;
 pub const IOCTL_SEND_VERDICT: u32 = 0x80002004;
+pub const IOCTL_REGISTER_AGENT: u32 = 0x80002008;
 
 #[repr(C)]
 pub struct GalateaEvent {

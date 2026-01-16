@@ -46,8 +46,10 @@ __Stages:__
         - [ ] Dll based Userland hooks
         - [ ] Bilateral Health checks (Is Driver/agent alive?)
     2. Ui
-        - [ ] Config screen 
+        - [ ] Config screen
+        - [ ] Exclusions and custom indicatiors 
     3. Hardening
+        - [x] Register Agent to prevent other processes from sending verdicts
         - [ ] Split Agent and restrict driver to Service Principal
 2. Server
     1. Log gathering from Endpoint

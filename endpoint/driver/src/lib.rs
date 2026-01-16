@@ -1,7 +1,9 @@
 #![no_std]
 extern crate alloc;
 use core::sync::atomic::Ordering;
+use core::sync::atomic::AtomicPtr;
 use core::ptr::addr_of_mut;
+use core::ffi::c_void;
 use alloc::vec::Vec;
 
 use wdk_sys::{DEVICE_OBJECT, DO_BUFFERED_IO, DO_DEVICE_INITIALIZING, DRIVER_OBJECT, 
@@ -11,18 +13,7 @@ use wdk_sys::{DEVICE_OBJECT, DO_BUFFERED_IO, DO_DEVICE_INITIALIZING, DRIVER_OBJE
     UNICODE_STRING, _MODE
 };
 use wdk_sys::ntddk::{
-    IoDeleteDevice,
-    IoDeleteSymbolicLink,
-    PsSetCreateProcessNotifyRoutineEx,
-    PsSetCreateThreadNotifyRoutine,
-    PsRemoveCreateThreadNotifyRoutine,
-    DbgPrint,
-    IoCreateSymbolicLink,
-    KeInitializeSpinLock,
-    KeDelayExecutionThread,
-    KeReleaseInStackQueuedSpinLock,
-    KeAcquireInStackQueuedSpinLock,
-    KeSetEvent,
+    DbgPrint, IoCreateSymbolicLink, IoDeleteDevice, IoDeleteSymbolicLink, KeAcquireInStackQueuedSpinLock, KeDelayExecutionThread, KeInitializeSpinLock, KeReleaseInStackQueuedSpinLock, KeSetEvent, ObfDereferenceObject, PsRemoveCreateThreadNotifyRoutine, PsSetCreateProcessNotifyRoutineEx, PsSetCreateThreadNotifyRoutine
 };
 
 use shared::GalateaEvent;
@@ -90,6 +81,8 @@ static mut CACHE_LOCK: KSPIN_LOCK = 0;
 pub const MAX_VERDICT_CACHE_SIZE: usize = 1024;
 pub const MAX_VERDICT_CACHE_TTL: u64 = 10 * 10_000_000;
 
+// Agent Register
+pub static AGENT_PROCESS: AtomicPtr<c_void> = AtomicPtr::new(core::ptr::null_mut());
 
 #[unsafe(no_mangle)]
 pub extern "C" fn DriverEntry(
@@ -127,16 +120,6 @@ pub extern "C" fn DriverEntry(
         };
 
         let mut device_obj: *mut DEVICE_OBJECT = core::ptr::null_mut();
-        /*
-        let mut status = IoCreateDevice(
-            driver_object,
-            0,
-            &mut dev_name,
-            FILE_DEVICE_UNKNOWN,
-            FILE_DEVICE_SECURE_OPEN,
-            0,
-            &mut device_obj,
-        ); */
 
         let sddl = w![r"D:P(A;;GA;;;SY)(A;;GA;;;BA)"];
         let guid = &wdk_sys::GUID::default();
@@ -231,7 +214,14 @@ pub extern "C" fn driver_unload(_driver_object: *mut DRIVER_OBJECT) {
             );    
             count = APC_COUNT.load(Ordering::SeqCst);
         }
-        DbgPrint(b"Galatea: All APCs finished. Safe to unload.\0".as_ptr() as *const i8);
+        DbgPrint(b"Galatea: All APCs finished.\0".as_ptr() as *const i8);
+
+        let agent = AGENT_PROCESS.load(Ordering::SeqCst);
+        if !agent.is_null() {
+            DbgPrint(b"Galatea: Releasing reference to Agent process...\0".as_ptr() as *const i8);
+            ObfDereferenceObject(agent);
+            AGENT_PROCESS.store(core::ptr::null_mut(), Ordering::SeqCst);
+        }
 
         DbgPrint(b"Galatea: Unregistering Device...\0".as_ptr() as *const i8);
         let link_u16 = w!("\\DosDevices\\Galatea");

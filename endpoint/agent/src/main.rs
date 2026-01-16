@@ -84,6 +84,15 @@ fn main() -> error::Result<()>{
     };
 
     GLOBAL_DEVICE_HANDLE.store(device_handle.0 as usize, Ordering::SeqCst);
+
+    if let Err(_) = driver::io::register_agent(device_handle) {
+        mimic_error!("CRITICAL: Agent Registration Failed.");
+        mimic_error!("This usually means another Agent instance is already running.");
+        let _ = unsafe { CloseHandle(device_handle) };
+        cleanup();
+        mimic_bail!("Registration Handshake Failed");
+    }
+
     let safe_handle = DriverHandle(device_handle);
 
     mimic_success!("Galatea Systems: Online");

@@ -1,20 +1,14 @@
-use wdk_sys::{DEVICE_OBJECT,IRP,NTSTATUS,KLOCK_QUEUE_HANDLE,
-    STATUS_SUCCESS,IO_NO_INCREMENT,STATUS_UNSUCCESSFUL,STATUS_PENDING,
-    STATUS_INVALID_DEVICE_REQUEST, IO_STACK_LOCATION, SL_PENDING_RETURNED,
+use wdk_sys::{DEVICE_OBJECT, IO_NO_INCREMENT, IO_STACK_LOCATION, IRP, KLOCK_QUEUE_HANDLE, NTSTATUS, SL_PENDING_RETURNED, STATUS_ACCESS_DENIED, STATUS_INVALID_DEVICE_REQUEST, STATUS_PENDING, STATUS_SUCCESS, STATUS_UNSUCCESSFUL
 };
-use wdk_sys::ntddk::{IofCompleteRequest,
-    KeAcquireInStackQueuedSpinLock,
-    KeReleaseInStackQueuedSpinLock,
-    IoReleaseCancelSpinLock,
-    DbgPrint,
+use wdk_sys::ntddk::{DbgPrint, IoGetCurrentProcess, IoReleaseCancelSpinLock, IofCompleteRequest, KeAcquireInStackQueuedSpinLock, KeReleaseInStackQueuedSpinLock, ObfReferenceObject, ObfDereferenceObject
 };
 
 use core::ptr::addr_of_mut;
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicPtr, Ordering};
 
-use shared::{IOCTL_GET_EVENT, IOCTL_SEND_VERDICT, GalateaVerdict, GalateaEvent};
-use crate::{PENDING_IRP_LOCK,PENDING_IRP};
+use shared::{GalateaEvent, GalateaVerdict, IOCTL_GET_EVENT, IOCTL_REGISTER_AGENT, IOCTL_SEND_VERDICT};
+use crate::{PENDING_IRP_LOCK,PENDING_IRP,AGENT_PROCESS};
 
 pub unsafe extern "C" fn dispatch_create_close(_device: *mut DEVICE_OBJECT, irp: *mut IRP) -> NTSTATUS {
     unsafe {
@@ -29,6 +23,19 @@ pub unsafe extern "C" fn dispatch_device_control(_device: *mut DEVICE_OBJECT, ir
     unsafe {
         let stack = io_get_current_irp_stack_location(irp);
         let control_code = (*stack).Parameters.DeviceIoControl.IoControlCode;
+
+        // validate agent
+        if control_code != IOCTL_REGISTER_AGENT {
+            let registered = AGENT_PROCESS.load(Ordering::SeqCst);
+            let caller = IoGetCurrentProcess() as *mut c_void;
+
+            if registered.is_null() || registered != caller {
+                (*irp).IoStatus.__bindgen_anon_1.Status = STATUS_ACCESS_DENIED;
+                (*irp).IoStatus.Information = 0;
+                IofCompleteRequest(irp, IO_NO_INCREMENT as i8);
+                return STATUS_ACCESS_DENIED;
+            }
+        }
 
         match control_code {
             IOCTL_GET_EVENT => {
@@ -102,6 +109,37 @@ pub unsafe extern "C" fn dispatch_device_control(_device: *mut DEVICE_OBJECT, ir
                 return status;
             
             
+            },
+            IOCTL_REGISTER_AGENT =>{
+                let caller_process = IoGetCurrentProcess();
+                ObfReferenceObject(caller_process as *mut _);
+                let result = AGENT_PROCESS.compare_exchange(
+                    core::ptr::null_mut(),
+                    caller_process as *mut c_void,
+                    Ordering::SeqCst,
+                    Ordering::SeqCst
+                );
+
+                match result {
+                    Ok(_) => {
+                        DbgPrint(b"Galatea: Agent Registered Successfully.\0".as_ptr() as *const i8);
+                        (*irp).IoStatus.__bindgen_anon_1.Status = STATUS_SUCCESS;
+                    },
+                    Err(_) => {
+                        DbgPrint(b"Galatea: Registration Rejected. Agent already active.\0".as_ptr() as *const i8);
+                        ObfDereferenceObject(caller_process as *mut c_void);
+                        (*irp).IoStatus.__bindgen_anon_1.Status = STATUS_ACCESS_DENIED;
+                    }
+                }
+
+                (*irp).IoStatus.Information = 0;
+                IofCompleteRequest(irp, IO_NO_INCREMENT as i8);
+
+                if (*irp).IoStatus.__bindgen_anon_1.Status == STATUS_SUCCESS {
+                    STATUS_SUCCESS
+                } else {
+                    STATUS_ACCESS_DENIED
+                }
             },
             _ => {
                 (*irp).IoStatus.__bindgen_anon_1.Status = STATUS_INVALID_DEVICE_REQUEST;
