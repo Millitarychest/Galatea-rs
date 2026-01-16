@@ -17,14 +17,12 @@ use wdk_sys::ntddk::{
     PsSetCreateThreadNotifyRoutine,
     PsRemoveCreateThreadNotifyRoutine,
     DbgPrint,
-    IoCreateDevice,
     IoCreateSymbolicLink,
     KeInitializeSpinLock,
     KeDelayExecutionThread,
     KeReleaseInStackQueuedSpinLock,
     KeAcquireInStackQueuedSpinLock,
     KeSetEvent,
-    
 };
 
 use shared::GalateaEvent;
@@ -33,7 +31,7 @@ mod ioctl;
 mod callback;
 mod apc;
 mod utils;
-
+mod ffi;
 
 #[cfg(not(test))]
 extern crate wdk_panic;
@@ -129,6 +127,7 @@ pub extern "C" fn DriverEntry(
         };
 
         let mut device_obj: *mut DEVICE_OBJECT = core::ptr::null_mut();
+        /*
         let mut status = IoCreateDevice(
             driver_object,
             0,
@@ -137,6 +136,27 @@ pub extern "C" fn DriverEntry(
             FILE_DEVICE_SECURE_OPEN,
             0,
             &mut device_obj,
+        ); */
+
+        let sddl = w![r"D:P(A;;GA;;;SY)(A;;GA;;;BA)"];
+        let guid = &wdk_sys::GUID::default();
+
+        let mut sddl_unicode = UNICODE_STRING {
+            Length: (sddl.len() * 2) as u16,
+            MaximumLength: (sddl.len() * 2) as u16,
+            Buffer: sddl.as_ptr() as *mut _,
+        };
+
+        let mut status = ffi::WdmlibIoCreateDeviceSecure(
+            driver_object, 
+            0, 
+            &mut dev_name, 
+            FILE_DEVICE_UNKNOWN, 
+            FILE_DEVICE_SECURE_OPEN, 
+            0, 
+            &mut sddl_unicode, 
+            guid, 
+            &mut device_obj
         );
         if status != STATUS_SUCCESS {
             return status;
@@ -221,11 +241,6 @@ pub extern "C" fn driver_unload(_driver_object: *mut DRIVER_OBJECT) {
         if !LOCAL_DEVICE_OBJECT.is_null() { IoDeleteDevice(LOCAL_DEVICE_OBJECT); }
     }
 }
-
-
-// ------ Helpers
-
-
 
 // ------ Stubs
 
