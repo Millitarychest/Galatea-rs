@@ -7,7 +7,7 @@
 The Galatea Suite is a very basic EDR written for Windows to gain a better understanding of EDR solutions and windows driver development.
 This project was inspired by a [this post on sensepost.com](https://sensepost.com/blog/2024/sensecon-23-from-windows-drivers-to-an-almost-fully-working-edr/)
 
-A ``Known-Badlist`` in the correct sqlite format is provided in ``static/assets``. The IoCs contained originate from [virusshare.com](https://virusshare.com/hashes).
+A ``Known-Badlist`` can be provided as ``galatea_dataset.db`` in the agent directory for hash checks. The IoCs used during development originate from [virusshare.com](https://virusshare.com/hashes). If one is not provided the agent will initialize a empty list in the correct format on startup.
 
 ### How to run
 > [!CAUTION]
@@ -15,7 +15,7 @@ A ``Known-Badlist`` in the correct sqlite format is provided in ``static/assets`
 > This is an experimental project written by someone that is an idiot
 > Given that the EDR requires elevate permissions as well as a kernel driver, it can really screw up your PC or at the very least cause it to BSOD
 
-Build the project by running the ```build.ps1``` script to run each project with the needed config. This will create the ```target/dist``` folder containing the resulting binaries, metadata files as well as the provided default values.
+Build the project by running the ```build.ps1``` script to run each project with the needed config. This will create the ```target/dist``` folder containing the resulting binaries and metadata files.
  
 Follow the steps below to run the EDR. (Admin rights are required)
 1. Setup your VM to allow self-signed drivers via ``bcdedit /set testsigning on`` ``bcdedit -debug on`` 
