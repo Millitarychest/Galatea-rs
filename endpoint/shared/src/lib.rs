@@ -6,11 +6,14 @@ pub const IOCTL_SEND_VERDICT: u32 = 0x80002004;
 #[repr(C)]
 pub struct GalateaEvent {
     pub process_id: u64,
-    pub image_path: [u16; 260], // MAX_PATH
+    pub request_id: u64,
+    pub frozen: bool,
+    pub image_path: [u16; 260],
 }
 
 #[repr(C)]
 pub struct GalateaVerdict {
     pub process_id: u64,
+    pub request_id: u64,
     pub allow: bool,
 }

@@ -23,12 +23,17 @@ use wdk_sys::ntddk::{
     KeDelayExecutionThread,
     KeReleaseInStackQueuedSpinLock,
     KeAcquireInStackQueuedSpinLock,
-    KeSetEvent
+    KeSetEvent,
+    
 };
+
+use shared::GalateaEvent;
 
 mod ioctl;
 mod callback;
 mod apc;
+mod utils;
+
 
 #[cfg(not(test))]
 extern crate wdk_panic;
@@ -50,6 +55,7 @@ static mut PENDING_IRP_LOCK: KSPIN_LOCK = 0;
 // Scan List
 #[repr(C)]
 struct PendingScan {
+    request_id: u64,
     pid: u64,
     event_ptr: *mut KEVENT,
     verdict: NTSTATUS,
@@ -58,8 +64,34 @@ static mut PENDING_SCANS: Option<Vec<PendingScan>> = None;
 static mut PENDING_SCANS_LOCK: KSPIN_LOCK = 0;
 
 // Intermediet Buffer of new Processes
-static mut TARGET_PIDS: Option<Vec<u64>> = None;
+pub struct TargetProcess {
+    pub pid: u64,
+    pub request_id: u64,
+}
+
+static mut TARGET_PIDS: Option<Vec<TargetProcess>> = None;
 static mut TARGET_LOCK: KSPIN_LOCK = 0;
+
+pub static REQUEST_ID_COUNTER: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
+
+// Event Buffer:
+static mut EVENT_QUEUE: Option<Vec<GalateaEvent>> = None;
+static mut QUEUE_LOCK: KSPIN_LOCK = 0;
+
+// VerdictBuffer
+#[derive(Clone, Copy)]
+struct CachedVerdict {
+    request_id: u64,
+    allowed: bool,
+    timestamp: u64,
+}
+
+static mut VERDICT_CACHE: Option<Vec<CachedVerdict>> = None;
+static mut CACHE_LOCK: KSPIN_LOCK = 0;
+
+pub const MAX_VERDICT_CACHE_SIZE: usize = 1024;
+pub const MAX_VERDICT_CACHE_TTL: u64 = 10 * 10_000_000;
+
 
 #[unsafe(no_mangle)]
 pub extern "C" fn DriverEntry(
@@ -72,9 +104,13 @@ pub extern "C" fn DriverEntry(
         KeInitializeSpinLock(&raw mut PENDING_IRP_LOCK);
         KeInitializeSpinLock(addr_of_mut!(TARGET_LOCK));
         KeInitializeSpinLock(addr_of_mut!(PENDING_SCANS_LOCK));
+        KeInitializeSpinLock(addr_of_mut!(CACHE_LOCK));
+        KeInitializeSpinLock(addr_of_mut!(QUEUE_LOCK));
 
         *addr_of_mut!(TARGET_PIDS) = Some(Vec::new());
         *addr_of_mut!(PENDING_SCANS) = Some(Vec::new());
+        *addr_of_mut!(VERDICT_CACHE) = Some(Vec::new());
+        *addr_of_mut!(EVENT_QUEUE) = Some(Vec::new());
 
         (*driver_object).DriverUnload = Some(driver_unload);
 
@@ -149,6 +185,7 @@ pub extern "C" fn driver_unload(_driver_object: *mut DRIVER_OBJECT) {
         let _ = PsSetCreateProcessNotifyRoutineEx(Some(callback::process_notify_routine), 1); 
         let _ = PsRemoveCreateThreadNotifyRoutine(Some(callback::thread_notify_routine));
 
+
         DbgPrint(b"Galatea: Waking pending threads...\0".as_ptr() as *const i8);
         {
             let mut lock_handle: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
@@ -187,25 +224,7 @@ pub extern "C" fn driver_unload(_driver_object: *mut DRIVER_OBJECT) {
 
 
 // ------ Helpers
-// --- Helper Macro for Wide Strings (L"notepad.exe") ---
-#[macro_export]
-macro_rules! w {
-    ($s:expr) => {
-        {
-            const S: &[u16] = &{
-                let bs = $s.as_bytes();
-                let mut out = [0u16; $s.len()];
-                let mut i = 0;
-                while i < $s.len() {
-                    out[i] = bs[i] as u16;
-                    i += 1;
-                }
-                out
-            };
-            S
-        }
-    };
-}
+
 
 
 // ------ Stubs

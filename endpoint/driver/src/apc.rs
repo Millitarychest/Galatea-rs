@@ -5,10 +5,10 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 
 use wdk_sys::_KWAIT_REASON::Suspended;
 use wdk_sys::_MODE::{KernelMode, UserMode};
-use wdk_sys::{_EVENT_TYPE, HANDLE, KAPC, KEVENT, KLOCK_QUEUE_HANDLE, KPROCESSOR_MODE, PETHREAD, PVOID, STATUS_ACCESS_DENIED, STATUS_SUCCESS, LARGE_INTEGER};
+use wdk_sys::{_EVENT_TYPE, HANDLE, KAPC, KEVENT, KLOCK_QUEUE_HANDLE, KPROCESSOR_MODE, LARGE_INTEGER, NTSTATUS, PETHREAD, PVOID, STATUS_ACCESS_DENIED, STATUS_SUCCESS};
 use wdk_sys::ntddk::{DbgPrint, KeAcquireInStackQueuedSpinLock, KeInitializeEvent, KeReleaseInStackQueuedSpinLock, KeSetEvent, KeWaitForSingleObject, ObfDereferenceObject, PsLookupThreadByThreadId, ZwTerminateProcess};
 
-use crate::{PENDING_SCANS_LOCK,PENDING_SCANS, PendingScan};
+use crate::{CACHE_LOCK, MAX_VERDICT_CACHE_SIZE, MAX_VERDICT_CACHE_TTL, PENDING_SCANS, PENDING_SCANS_LOCK, PendingScan, VERDICT_CACHE, utils::get_kernel_time};
 
 pub static APC_COUNT: AtomicUsize = AtomicUsize::new(0);
 
@@ -18,10 +18,11 @@ struct FreezeApcCtx{
     apc: KAPC,
     event: KEVENT,
     pid: u64,
+    request_id: u64,
 }
 
 
-pub unsafe fn inject_freeze_apc(thread_id: HANDLE, pid: u64) {
+pub unsafe fn inject_freeze_apc(thread_id: HANDLE, pid: u64, rid: u64) {
     unsafe {
         let mut thread_obj: PETHREAD = core::ptr::null_mut();
         let status = PsLookupThreadByThreadId(thread_id, &mut thread_obj);
@@ -32,7 +33,8 @@ pub unsafe fn inject_freeze_apc(thread_id: HANDLE, pid: u64) {
         let mut ctx = Box::new(FreezeApcCtx{
             apc: core::mem::zeroed(),
             event: core::mem::zeroed(),
-            pid
+            pid,
+            request_id: rid
         });
 
         KeInitializeEvent(&mut ctx.event, _EVENT_TYPE::NotificationEvent, 0);
@@ -46,6 +48,7 @@ pub unsafe fn inject_freeze_apc(thread_id: HANDLE, pid: u64) {
                     pid,
                     event_ptr: &mut ctx.event,
                     verdict: STATUS_ACCESS_DENIED,
+                    request_id: rid
                 });
             }
 
@@ -124,43 +127,70 @@ unsafe extern "C" fn apc_normal_routine(
         let ctx_ptr = normal_context as *mut FreezeApcCtx;
         let ctx = &mut *ctx_ptr;
 
-        //TIMEOUT
-        let mut timeout = LARGE_INTEGER { QuadPart: -50_000_000 };
-
-        DbgPrint(b"Galatea: PID %d Frozen. Waiting for verdict...\0".as_ptr() as *const i8, ctx.pid);
-        
-        let status = KeWaitForSingleObject(
-            &mut ctx.event as *mut _ as PVOID,
-            Suspended,
-            UserMode as i8, // UserMode allows the wait to be alertable if needed
-            0, 
-            &mut timeout
-        );
-
-        let mut verdict = STATUS_ACCESS_DENIED;
-
-        {
-            let mut lock_handle: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
-            KeAcquireInStackQueuedSpinLock(addr_of_mut!(PENDING_SCANS_LOCK), &mut lock_handle);
-            
-            if let Some(list) = (*addr_of_mut!(PENDING_SCANS)).as_mut() {
-                if let Some(idx) = list.iter().position(|x| x.pid == ctx.pid) {
-                    let item = list.remove(idx);
-                    verdict = item.verdict;
+        // Early exit: Agent beat us:
+        let early_verdict = check_early_verdict(ctx.pid);
+        if let Some(v) = early_verdict {
+            DbgPrint(b"Galatea: PID %d used Cached Verdict: %x\0".as_ptr() as *const i8, ctx.pid, v);
+            {
+                let mut lock: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
+                KeAcquireInStackQueuedSpinLock(addr_of_mut!(crate::PENDING_SCANS_LOCK), &mut lock);
+                if let Some(list) = (*addr_of_mut!(crate::PENDING_SCANS)).as_mut() {
+                    if let Some(idx) = list.iter().position(|x| x.pid == ctx.pid) {
+                        list.remove(idx);
+                    }
                 }
+                KeReleaseInStackQueuedSpinLock(&mut lock);
             }
-            KeReleaseInStackQueuedSpinLock(&mut lock_handle);
-        }
 
-        if status == wdk_sys::STATUS_TIMEOUT {
-            DbgPrint(b"Galatea: Timeout waiting for agent. Terminating.\0".as_ptr() as *const i8);
-            // TODO: Make dependen on agent status (If agent is registered fail-> block else allow so task manager etc or the agent can start)
-            //ZwTerminateProcess(core::ptr::null_mut(), STATUS_ACCESS_DENIED);
-        } else if verdict != STATUS_SUCCESS {
-            DbgPrint(b"Galatea: BLOCK verdict received. Terminating.\0".as_ptr() as *const i8);            
-            let _ = ZwTerminateProcess(core::ptr::null_mut(), STATUS_ACCESS_DENIED);
-        } else {
-            DbgPrint(b"Galatea: ALLOW verdict received. Resuming.\0".as_ptr() as *const i8);
+            if v != STATUS_SUCCESS {
+                let _ = Box::from_raw(ctx_ptr);
+                APC_COUNT.fetch_sub(1, Ordering::SeqCst);
+        
+                let _ = ZwTerminateProcess(core::ptr::null_mut(), STATUS_ACCESS_DENIED);
+            }
+        }
+        else{
+             //TIMEOUT
+            let mut timeout = LARGE_INTEGER { QuadPart: -50_000_000 };
+
+            DbgPrint(b"Galatea: PID %d Frozen. Waiting for verdict...\0".as_ptr() as *const i8, ctx.pid);
+            
+            let status = KeWaitForSingleObject(
+                &mut ctx.event as *mut _ as PVOID,
+                Suspended,
+                UserMode as i8,
+                0, 
+                &mut timeout
+            );
+
+            let mut verdict = STATUS_ACCESS_DENIED;
+
+            {
+                let mut lock_handle: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
+                KeAcquireInStackQueuedSpinLock(addr_of_mut!(PENDING_SCANS_LOCK), &mut lock_handle);
+                
+                if let Some(list) = (*addr_of_mut!(PENDING_SCANS)).as_mut() {
+                    if let Some(idx) = list.iter().position(|x| x.pid == ctx.pid) {
+                        let item = list.remove(idx);
+                        verdict = item.verdict;
+                    }
+                }
+                KeReleaseInStackQueuedSpinLock(&mut lock_handle);
+            }
+
+            if status == wdk_sys::STATUS_TIMEOUT {
+                DbgPrint(b"Galatea: Timeout waiting for agent. Terminating.\0".as_ptr() as *const i8);
+                // TODO: Make dependen on agent status (If agent is registered fail-> block else allow so task manager etc or the agent can start)
+                //ZwTerminateProcess(core::ptr::null_mut(), STATUS_ACCESS_DENIED);
+            } else if verdict != STATUS_SUCCESS {
+                let _ = Box::from_raw(ctx_ptr);
+                APC_COUNT.fetch_sub(1, Ordering::SeqCst);
+        
+                DbgPrint(b"Galatea: BLOCK verdict received. Terminating.\0".as_ptr() as *const i8);            
+                let _ = ZwTerminateProcess(core::ptr::null_mut(), STATUS_ACCESS_DENIED);
+            } else {
+                DbgPrint(b"Galatea: ALLOW verdict received. Resuming.\0".as_ptr() as *const i8);
+            }
         }
 
         let _ = Box::from_raw(ctx_ptr);
@@ -169,7 +199,7 @@ unsafe extern "C" fn apc_normal_routine(
 }
 
 // helpers
-pub unsafe fn apply_verdict(pid: u64, allow: bool) -> bool {
+pub unsafe fn apply_verdict(_pid: u64, req_id: u64, allow: bool) -> bool {
     unsafe {
         let mut found = false;
         let mut lock_handle: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
@@ -177,7 +207,7 @@ pub unsafe fn apply_verdict(pid: u64, allow: bool) -> bool {
         KeAcquireInStackQueuedSpinLock(addr_of_mut!(crate::PENDING_SCANS_LOCK), &mut lock_handle);
 
         if let Some(list) = (*addr_of_mut!(crate::PENDING_SCANS)).as_mut() {
-            if let Some(item) = list.iter_mut().find(|x| x.pid == pid) {
+            if let Some(item) = list.iter_mut().find(|x| x.request_id == req_id) {
                 item.verdict = if allow { STATUS_SUCCESS } else { STATUS_ACCESS_DENIED };
                 KeSetEvent(item.event_ptr, 0, 0);
                 found = true;
@@ -185,10 +215,54 @@ pub unsafe fn apply_verdict(pid: u64, allow: bool) -> bool {
         }
 
         KeReleaseInStackQueuedSpinLock(&mut lock_handle);
-        found
+        if found {return found;}
+
+        lock_handle = core::mem::zeroed();
+        KeAcquireInStackQueuedSpinLock(addr_of_mut!(CACHE_LOCK), &mut lock_handle);
+        if let Some(cache) = (*addr_of_mut!(VERDICT_CACHE)).as_mut(){
+            let now = get_kernel_time();
+
+            cache.retain(|entry| (now - entry.timestamp) < MAX_VERDICT_CACHE_TTL);
+            while cache.len() >= MAX_VERDICT_CACHE_SIZE {
+                cache.remove(0);
+            }
+
+            if let Some(existing) = cache.iter_mut().find(|x| x.request_id == req_id) {
+                existing.allowed = allow;
+                existing.timestamp = now;
+            } else {
+                cache.push(crate::CachedVerdict { request_id: req_id, allowed: allow, timestamp: now });
+            }
+
+        }
+        KeReleaseInStackQueuedSpinLock(&mut lock_handle);
+
+        true
     }
 }
 
+unsafe fn check_early_verdict(req_id: u64) -> Option<NTSTATUS>{
+    unsafe{
+        let mut lock_handle: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
+        let mut result = None;
+
+        KeAcquireInStackQueuedSpinLock(addr_of_mut!(CACHE_LOCK), &mut lock_handle);
+        if let Some(cache) = (*addr_of_mut!(VERDICT_CACHE)).as_mut(){
+            if let Some(idx) = cache.iter().position(|x| x.request_id == req_id) {
+                let entry = cache.remove(idx);
+
+                result = Some(if entry.allowed {
+                    STATUS_SUCCESS
+                } else {
+                    STATUS_ACCESS_DENIED    
+                });
+            }
+        }
+        KeReleaseInStackQueuedSpinLock(&mut lock_handle);
+
+        result
+    }
+}
 
 //stubs 
 unsafe extern "C" {

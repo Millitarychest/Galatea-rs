@@ -6,13 +6,14 @@ use wdk_sys::ntddk::{IofCompleteRequest,
     KeAcquireInStackQueuedSpinLock,
     KeReleaseInStackQueuedSpinLock,
     IoReleaseCancelSpinLock,
-    DbgPrint
+    DbgPrint,
 };
 
+use core::ptr::addr_of_mut;
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicPtr, Ordering};
 
-use shared::{IOCTL_GET_EVENT, IOCTL_SEND_VERDICT, GalateaVerdict};
+use shared::{IOCTL_GET_EVENT, IOCTL_SEND_VERDICT, GalateaVerdict, GalateaEvent};
 use crate::{PENDING_IRP_LOCK,PENDING_IRP};
 
 pub unsafe extern "C" fn dispatch_create_close(_device: *mut DEVICE_OBJECT, irp: *mut IRP) -> NTSTATUS {
@@ -32,8 +33,33 @@ pub unsafe extern "C" fn dispatch_device_control(_device: *mut DEVICE_OBJECT, ir
         match control_code {
             IOCTL_GET_EVENT => {
                 let mut lock_handle: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
-                KeAcquireInStackQueuedSpinLock(&raw mut PENDING_IRP_LOCK, &mut lock_handle);
+                let mut queued_event: Option<GalateaEvent> = None;
 
+                KeAcquireInStackQueuedSpinLock(addr_of_mut!(crate::QUEUE_LOCK), &mut lock_handle);
+                if let Some(q) = (*addr_of_mut!(crate::EVENT_QUEUE)).as_mut() {
+                    if !q.is_empty() {
+                        queued_event = Some(q.remove(0));
+                    }
+                }
+                KeReleaseInStackQueuedSpinLock(&mut lock_handle);
+
+                if let Some(evt) = queued_event {
+                    let stack = io_get_current_irp_stack_location(irp);
+                    let output_len = (*stack).Parameters.DeviceIoControl.OutputBufferLength as usize;
+                    if output_len >= core::mem::size_of::<GalateaEvent>() {
+                        let buffer = (*irp).AssociatedIrp.SystemBuffer as *mut GalateaEvent;
+                        *buffer = evt;
+                        (*irp).IoStatus.Information = core::mem::size_of::<GalateaEvent>() as u64;
+                        (*irp).IoStatus.__bindgen_anon_1.Status = STATUS_SUCCESS;
+                    }else {
+                        (*irp).IoStatus.__bindgen_anon_1.Status = wdk_sys::STATUS_BUFFER_TOO_SMALL;
+                    }
+                    IofCompleteRequest(irp, IO_NO_INCREMENT as i8);
+                    return STATUS_SUCCESS;
+                }
+
+                let mut lock_handle: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
+                KeAcquireInStackQueuedSpinLock(&raw mut PENDING_IRP_LOCK, &mut lock_handle);
                 if !PENDING_IRP.is_null() {
                     KeReleaseInStackQueuedSpinLock(&mut lock_handle);
                     (*irp).IoStatus.__bindgen_anon_1.Status = STATUS_UNSUCCESSFUL;
@@ -63,16 +89,19 @@ pub unsafe extern "C" fn dispatch_device_control(_device: *mut DEVICE_OBJECT, ir
 
                 let verdict_data = &*((*irp).AssociatedIrp.SystemBuffer as *const GalateaVerdict);
                 let pid = verdict_data.process_id;
+                let rid = verdict_data.request_id;
                 let allowed = verdict_data.allow;
 
                 DbgPrint(b"Galatea: Received Verdict for PID: %d -> %d\0".as_ptr() as *const i8, pid, allowed as i32);
-                let found = crate::apc::apply_verdict(pid, allowed);
+                let found = crate::apc::apply_verdict(pid, rid, allowed);
 
                 let status = if found { STATUS_SUCCESS } else { STATUS_UNSUCCESSFUL };
                 (*irp).IoStatus.__bindgen_anon_1.Status = status;
                 (*irp).IoStatus.Information = 0;
                 IofCompleteRequest(irp, IO_NO_INCREMENT as i8);
                 return status;
+            
+            
             },
             _ => {
                 (*irp).IoStatus.__bindgen_anon_1.Status = STATUS_INVALID_DEVICE_REQUEST;
@@ -86,18 +115,28 @@ pub unsafe extern "C" fn dispatch_device_control(_device: *mut DEVICE_OBJECT, ir
 
 pub unsafe extern "C" fn dispatch_cleanup(_device: *mut DEVICE_OBJECT, irp: *mut IRP) -> NTSTATUS {
     unsafe {
-        let mut lock_handle: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
-        KeAcquireInStackQueuedSpinLock(&raw mut PENDING_IRP_LOCK, &mut lock_handle);
+        let mut irp_to_complete: *mut IRP = core::ptr::null_mut();
+        {
+            let mut lock_handle: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
+            KeAcquireInStackQueuedSpinLock(&raw mut PENDING_IRP_LOCK, &mut lock_handle);
 
-        if !PENDING_IRP.is_null() {
-            (*PENDING_IRP).IoStatus.__bindgen_anon_1.Status = wdk_sys::STATUS_CANCELLED;
-            (*PENDING_IRP).IoStatus.Information = 0;
-            IofCompleteRequest(PENDING_IRP, IO_NO_INCREMENT as i8);
+            if !PENDING_IRP.is_null() {
+                let pending = PENDING_IRP;
 
-            PENDING_IRP = core::ptr::null_mut();
+                if io_set_cancel_routine(pending, None).is_some() {
+                    PENDING_IRP = core::ptr::null_mut();
+                    irp_to_complete = pending;
+                }
+            }
+
+            KeReleaseInStackQueuedSpinLock(&mut lock_handle);
         }
 
-        KeReleaseInStackQueuedSpinLock(&mut lock_handle);
+        if !irp_to_complete.is_null() {
+            (*irp_to_complete).IoStatus.__bindgen_anon_1.Status = wdk_sys::STATUS_CANCELLED;
+            (*irp_to_complete).IoStatus.Information = 0;
+            IofCompleteRequest(irp_to_complete, IO_NO_INCREMENT as i8);
+        }
 
         (*irp).IoStatus.__bindgen_anon_1.Status = STATUS_SUCCESS;
         (*irp).IoStatus.Information = 0;
@@ -111,17 +150,25 @@ pub unsafe extern "C" fn cancel_routine(_device: *mut DEVICE_OBJECT, irp: *mut I
     unsafe {
         IoReleaseCancelSpinLock((*irp).CancelIrql);
 
+        let mut irp_to_complete: *mut IRP = core::ptr::null_mut();
         let mut lock_handle: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
+        
         KeAcquireInStackQueuedSpinLock(&raw mut PENDING_IRP_LOCK, &mut lock_handle);
 
         if PENDING_IRP == irp {
             PENDING_IRP = core::ptr::null_mut();
-            (*irp).IoStatus.__bindgen_anon_1.Status = wdk_sys::STATUS_CANCELLED;
-            (*irp).IoStatus.Information = 0;
-            IofCompleteRequest(irp, IO_NO_INCREMENT as i8);
+            // Claim ownership, but DO NOT complete here.
+            irp_to_complete = irp;
         }
 
         KeReleaseInStackQueuedSpinLock(&mut lock_handle);
+
+        // Complete OUTSIDE the lock
+        if !irp_to_complete.is_null() {
+            (*irp_to_complete).IoStatus.__bindgen_anon_1.Status = wdk_sys::STATUS_CANCELLED;
+            (*irp_to_complete).IoStatus.Information = 0;
+            IofCompleteRequest(irp_to_complete, IO_NO_INCREMENT as i8);
+        }
     }
 }
 

@@ -1,5 +1,6 @@
 use std::{env, path::PathBuf, sync::atomic::{AtomicUsize, Ordering}};
 
+use threadpool::ThreadPool;
 use windows::{Win32::{Foundation::HANDLE, System::IO::CancelIoEx}, core::w};
 use windows::Win32::Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE};
 use windows::Win32::Storage::FileSystem::{CreateFileW, FILE_ATTRIBUTE_NORMAL, OPEN_EXISTING, FILE_SHARE_READ, FILE_SHARE_WRITE};
@@ -8,16 +9,22 @@ use std::ffi::c_void;
 use std::mem::size_of;
 
 use mimic_core::{error, mimic_bail, mimic_error, mimic_log, mimic_success, privilege};
-use shared::{GalateaEvent, GalateaVerdict, IOCTL_GET_EVENT};
+use shared::{GalateaEvent, IOCTL_GET_EVENT};
 
-use crate::driver::io::send_verdict;
 
 mod driver;
+mod db;
+mod analyzer;
+
+use crate::driver::DriverHandle;
 
 const DRIVER_SERVICE_NAME: &str = "Galatea";
 const DRIVER_FILE_NAME: &str = "driver.sys";
+const DB_FILE_NAME: &str = "signatures.db";
+
 
 static GLOBAL_DEVICE_HANDLE: AtomicUsize = AtomicUsize::new(0);
+
 
 fn main() -> error::Result<()>{
     mimic_log!("Initializing Galatea Agent...");
@@ -38,11 +45,22 @@ fn main() -> error::Result<()>{
         }).expect("Error setting Ctrl-C handler");
     }
 
-    init()?;
+    init_driver()?;
+
+    
+    // Setup Database Connection
+    let db_path = env::current_dir().unwrap().join(DB_FILE_NAME); // TODO: change
+    let db_pool = db::init_db_pool(db_path.to_str().unwrap())?;
+    mimic_success!("Knowledge Base (Signatures) Loaded.");
+
+    // Setup worker threads
+    let n_workers = 16; // Adjust
+    let worker_pool = ThreadPool::new(n_workers);
+    mimic_log!("Analysis Engine: {} Workers ready.", n_workers);
+
 
     // Event loop
     let device_name = w!("\\\\.\\Galatea");
-    
     let device_handle = unsafe {
         CreateFileW(
             device_name,
@@ -66,6 +84,7 @@ fn main() -> error::Result<()>{
     };
 
     GLOBAL_DEVICE_HANDLE.store(device_handle.0 as usize, Ordering::SeqCst);
+    let safe_handle = DriverHandle(device_handle);
 
     mimic_success!("Galatea Systems: Online");
     mimic_log!("(Press Ctrl+C to stop the agent)");
@@ -89,22 +108,13 @@ fn main() -> error::Result<()>{
 
         match result {
             Ok(_) => {
-                let image_path = String::from_utf16_lossy(&event.image_path)
-                    .trim_matches(char::from(0))
-                    .to_string();
+                let worker_handle = safe_handle.clone();
+                let worker_db = db_pool.clone();
+                let worker_event = event;
 
-                mimic_log!(
-                    "[EVENT] PID: {:<6} | Image: {}", 
-                    event.process_id, 
-                    image_path
-                );
-
-                let verdict = GalateaVerdict{
-                    process_id: event.process_id,
-                    allow: true,
-                };
-
-                send_verdict(device_handle, verdict);
+                worker_pool.execute(move || {
+                    analyzer::analyze_event(worker_event, worker_handle, worker_db);
+                });
             },
             Err(e) => {
                 eprintln!("DeviceIoControl failed: {:?}", e);
@@ -123,8 +133,17 @@ fn cleanup(){
     let _ = driver::mgmt::uninstall_driver_service(DRIVER_SERVICE_NAME);
 }
 
-fn init()-> error::Result<()>{
+fn init_driver()-> error::Result<()>{
+    // increase process prio
+    unsafe {
+        let current_process = windows::Win32::System::Threading::GetCurrentProcess();
+        let _ = windows::Win32::System::Threading::SetPriorityClass(
+            current_process, 
+            windows::Win32::System::Threading::HIGH_PRIORITY_CLASS
+        );
+    }
 
+    //setup driver
     if !privilege::is_elevated() {
         mimic_error!("Elevation Required: Galatea Agent must run as Administrator to load drivers.");
         return Ok(());
