@@ -3,6 +3,8 @@ use std::fs;
 use goblin::pe::PE;
 use md5::{Digest, Md5};
 
+use crate::analyzer::PackerSignatureEngine;
+
 
 #[derive(Debug,Clone)]
 pub struct HeurReport {
@@ -26,7 +28,7 @@ impl HeurReport {
     }
 }
 
-pub fn analyze_pe(path: &str) -> Option<HeurReport>{
+pub fn analyze_pe(path: &str, sig_engine: &PackerSignatureEngine) -> Option<HeurReport>{
     let buffer = match fs::read(path){
         Ok(b) => b,
         Err(_) => return None,
@@ -41,9 +43,12 @@ pub fn analyze_pe(path: &str) -> Option<HeurReport>{
 
     let mut added_ent = false;
     for section in &pe.sections {
-        let name = section.name().unwrap_or("");
 
-        //todo: check section name for known packername
+        if let Some(packer_name) = sig_engine.scan(&pe, &buffer) {
+            report.packer = Some(packer_name);
+            report.is_packed = true;
+            report.score_mod += 50;
+        }
 
         let start = section.pointer_to_raw_data as usize;
         let size = section.size_of_raw_data as usize;

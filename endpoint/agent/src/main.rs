@@ -1,4 +1,4 @@
-use std::{env, path::PathBuf, sync::atomic::{AtomicUsize, Ordering}};
+use std::{env, path::PathBuf, sync::{Arc, atomic::{AtomicUsize, Ordering}}};
 
 use threadpool::ThreadPool;
 use windows::{Win32::{Foundation::HANDLE, System::IO::CancelIoEx}, core::w};
@@ -17,7 +17,7 @@ mod db;
 mod analyzer;
 mod utils;
 
-use crate::driver::DriverHandle;
+use crate::{analyzer::PackerSignatureEngine, driver::DriverHandle};
 
 const DRIVER_SERVICE_NAME: &str = "Galatea";
 const DRIVER_FILE_NAME: &str = "driver.sys";
@@ -57,6 +57,18 @@ fn main() -> error::Result<()>{
     let db_path = current_dir.join(DB_FILE_NAME);
     let db_pool = db::init_db_pool(db_path.to_str().unwrap())?;
     mimic_success!("Knowledge Base (Signatures) Loaded.");
+
+    // Load Packer Signatures
+    let mut sig_engine = PackerSignatureEngine::new();
+    let sig_path = current_dir.join("userdb.txt");
+    if sig_path.exists() {
+        if let Err(e) = sig_engine.load(sig_path.to_str().unwrap()) {
+            mimic_error!("Failed to load signatures: {}", e);
+        }
+    } else {
+        mimic_log!("No external userdb.txt found. Using internal heuristics only.");
+    }
+    let sig_engine = Arc::new(sig_engine);
 
     // Setup worker threads
     let n_workers = 16; // Adjust
@@ -147,10 +159,11 @@ fn main() -> error::Result<()>{
             Ok(_) => {
                 let worker_handle = safe_handle.clone();
                 let worker_db = db_pool.clone();
+                let worker_sig = sig_engine.clone();
                 let worker_event = event;
 
                 worker_pool.execute(move || {
-                    analyzer::analyze_event(worker_event, worker_handle, worker_db);
+                    analyzer::analyze_event(worker_event, worker_handle, worker_db, worker_sig);
                 });
             },
             Err(e) => {
