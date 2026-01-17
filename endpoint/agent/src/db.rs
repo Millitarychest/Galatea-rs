@@ -29,7 +29,7 @@ pub fn init_db_pool(db_path: &str) -> error::Result<DbPool>{
     Ok(pool)
 }
 
-
+#[derive(PartialEq)]
 pub enum IOCTYPE {
     Md5Hash,
 

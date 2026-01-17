@@ -40,7 +40,7 @@ __Stages:__
     1. Logic
         - [x] Basic Driver Setup
         - [ ] Static checks
-            - [ ] Known Bad
+            - [x] Known Bad (only md5 atm)
             - [ ] Signature
             - [ ] Heuristics (Packing)
         - [ ] ML based static detection

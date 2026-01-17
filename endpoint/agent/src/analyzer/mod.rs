@@ -1,7 +1,9 @@
-use mimic_core::mimic_log;
+use mimic_core::{mimic_log, mimic_success};
 use shared::{GalateaEvent, GalateaVerdict};
 
-use crate::{db::{self, DbPool}, driver::{DriverHandle, io::send_verdict}, utils::calc_md5};
+mod heuristics;
+
+use crate::{db::{self, DbPool, IOCTYPE}, driver::{DriverHandle, io::send_verdict}, utils::calc_md5};
 
 pub fn analyze_event(event: GalateaEvent, driver: DriverHandle, db_pool: DbPool) {
     let image_path = String::from_utf16_lossy(&event.image_path)
@@ -21,7 +23,7 @@ pub fn analyze_event(event: GalateaEvent, driver: DriverHandle, db_pool: DbPool)
         };
         
         if !hash_md5.is_empty(){
-            if let Some(sig) = db::check_signature(&db_pool, &hash_md5){
+            if let Some(sig) = db::check_signature(&db_pool, &hash_md5) && sig.ioc_type == IOCTYPE::Md5Hash{
                 mimic_log!("[ALERT] Known Malicious File Detected!");
                 mimic_log!("        File: {}", image_path);
                 mimic_log!("        Hash: {}", sig.hash);
@@ -41,6 +43,11 @@ pub fn analyze_event(event: GalateaEvent, driver: DriverHandle, db_pool: DbPool)
             }
         }
 
+        if let Some(rep) = heuristics::analyze_pe(&image_path){
+            mimic_success!("{}", rep.imphash)
+        }
+
+
         let verdict = GalateaVerdict{
             process_id: event.process_id,
             allow: true,
@@ -53,4 +60,5 @@ pub fn analyze_event(event: GalateaEvent, driver: DriverHandle, db_pool: DbPool)
         mimic_log!("[FAST] PID: {:<6} | Image: {}", event.process_id, image_path);
     }
 
+    
 }

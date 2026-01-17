@@ -1,20 +1,19 @@
 use core::sync::atomic::Ordering;
 use core::ptr::addr_of_mut;
 use wdk_sys::{
-    BOOLEAN, HANDLE, IO_NO_INCREMENT, KLOCK_QUEUE_HANDLE, PCUNICODE_STRING, PEPROCESS, PS_CREATE_NOTIFY_INFO, PVOID, STATUS_ACCESS_DENIED, STATUS_SUCCESS, UNICODE_STRING
+    BOOLEAN, HANDLE, IO_NO_INCREMENT, KLOCK_QUEUE_HANDLE, PCUNICODE_STRING, PEPROCESS, PS_CREATE_NOTIFY_INFO, PVOID, STATUS_SUCCESS,
 };
 use wdk_sys::ntddk::{
     IofCompleteRequest,
     KeAcquireInStackQueuedSpinLock,
     KeReleaseInStackQueuedSpinLock,
     DbgPrint,
-    RtlEqualUnicodeString
 };
 
 use shared::GalateaEvent;
 use crate::ioctl::{io_get_current_irp_stack_location,io_set_cancel_routine};
 use crate::utils::is_allowlisted_static;
-use crate::{PENDING_IRP, PENDING_IRP_LOCK, REQUEST_ID_COUNTER, TARGET_LOCK, TARGET_PIDS, QUEUE_LOCK, EVENT_QUEUE,apc, w};
+use crate::{PENDING_IRP, PENDING_IRP_LOCK, REQUEST_ID_COUNTER, TARGET_LOCK, TARGET_PIDS, QUEUE_LOCK, EVENT_QUEUE,apc};
 
 pub unsafe extern "C" fn process_notify_routine(
     _process: PEPROCESS,
