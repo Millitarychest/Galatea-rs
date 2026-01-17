@@ -7,7 +7,7 @@
 The Galatea Suite is a very basic EDR written for Windows to gain a better understanding of EDR solutions and windows driver development.
 This project was inspired by a [this post on sensepost.com](https://sensepost.com/blog/2024/sensecon-23-from-windows-drivers-to-an-almost-fully-working-edr/)
 
-A ``Known-Badlist`` can be provided as ``galatea_dataset.db`` in the agent directory for hash checks. The IoCs used during development originate from [virusshare.com](https://virusshare.com/hashes). If one is not provided the agent will initialize a empty list in the correct format on startup.
+A ``Known-Badlist`` can be provided as ``galatea_dataset.db`` in the agent directory for hash checks. If one is not provided the agent will initialize a empty list in the correct format on startup.
 
 ### How to run
 > [!CAUTION]
@@ -55,6 +55,9 @@ __Stages:__
 2. Server
     1. Log gathering from Endpoint
 
+### Credits
+- The IoCs used during development for the ``known bad`` list originate from [virusshare.com](https://virusshare.com/hashes).
+- The Packer signatures in ``userdb.txt`` originate from [peid](https://github.com/packing-box/peid/blob/main/src/peid/db/userdb.txt), which themself credits: BobSoft, BobSoft_big, PEiDTab, ExeinfoPe, PEV and this [packing-box dataset](https://github.com/packing-box/dataset-packed-pe)
 
 ### References
 [\[1\] SensePost \| Sensecon 23: from windows drivers to an almost fully working edr](https://sensepost.com/blog/2024/sensecon-23-from-windows-drivers-to-an-almost-fully-working-edr/)
