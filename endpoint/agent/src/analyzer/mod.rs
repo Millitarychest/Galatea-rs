@@ -48,9 +48,10 @@ pub fn analyze_event(event: GalateaEvent, driver: DriverHandle, db_pool: DbPool,
         }
 
         if let Some(rep) = heuristics::analyze_pe(&image_path, &pack_engine){
+            mimic_log!("       [!] Threat modifier: {}", rep.score_mod);
             if rep.is_packed {
                 let packer = rep.packer.unwrap_or("Unknown".to_string());
-                mimic_log!("       [!] Packed Binary Detected ({})", packer);
+                mimic_log!("       [!] Detected Binary Toolchain({})", packer);
             }
             if rep.has_rwx {
                 mimic_log!("       [!] Dangerous RWX Section Detected");

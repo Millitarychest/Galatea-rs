@@ -42,7 +42,7 @@ __Stages:__
         - [ ] Static checks
             - [x] Known Bad (only md5 atm)
             - [ ] Signature
-            - [ ] Heuristics (Packing)
+            - [X] Heuristics (Packing)
         - [ ] ML based static detection
         - [ ] Dll based Userland hooks
         - [ ] Bilateral Health checks (Is Driver/agent alive?)

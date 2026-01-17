@@ -47,7 +47,6 @@ pub fn analyze_pe(path: &str, sig_engine: &PackerSignatureEngine) -> Option<Heur
         if let Some(packer_name) = sig_engine.scan(&pe, &buffer) {
             report.packer = Some(packer_name);
             report.is_packed = true;
-            report.score_mod += 50;
         }
 
         let start = section.pointer_to_raw_data as usize;
@@ -62,6 +61,9 @@ pub fn analyze_pe(path: &str, sig_engine: &PackerSignatureEngine) -> Option<Heur
                 report.high_entropy = true;
 
                 if !added_ent {
+                    if report.is_packed {
+                        report.score_mod += 50;
+                    }
                     report.score_mod += 20;
                     added_ent = true;
                 }
@@ -103,7 +105,7 @@ pub fn analyze_pe(path: &str, sig_engine: &PackerSignatureEngine) -> Option<Heur
         let result = hasher.finalize();
         report.imphash = hex::encode(result);
     } else {
-        report.score_mod += 10; 
+        report.score_mod += 10;
     }
 
     Some(report)

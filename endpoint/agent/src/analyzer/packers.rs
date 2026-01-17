@@ -93,7 +93,6 @@ impl PackerSignatureEngine {
 
         for sig in &self.signatures {
             let target_slice = if sig.ep_only {
-                // If signature is longer than remaining file, skip
                 if sig.pattern.len() > ep_data.len() { continue; }
                 ep_data
             } else {
