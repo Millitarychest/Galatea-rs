@@ -15,6 +15,8 @@ pub fn analyze_event(event: GalateaEvent, driver: DriverHandle, db_pool: DbPool,
         .to_string();
 
     if event.frozen{
+        let mut static_score = 0;
+
         mimic_log!("[SCAN] PID: {:<6} | Image: {}", event.process_id, image_path);
         
         //check md5 known bad
@@ -34,20 +36,13 @@ pub fn analyze_event(event: GalateaEvent, driver: DriverHandle, db_pool: DbPool,
                 mimic_log!("        Meta: {}", sig.meta);
                 mimic_log!("        Score: {}", sig.verdict);
 
-                let allowed = sig.verdict < crate::MAL_IOC_BLOCK_THRESHOLD;
-
-                let verdict = GalateaVerdict{
-                    process_id: event.process_id,
-                    allow: allowed,
-                    request_id: event.request_id,
-                };
-
-                send_verdict(driver.0, verdict);
-                return;
+                if block_on_highscore(sig.verdict, &event, &driver) {return;}
+                static_score += sig.verdict;
             }
         }
 
-        if let Some(rep) = heuristics::analyze_pe(&image_path, &pack_engine){
+        if let Some(rep) = heuristics::analyze_pe(&image_path, &pack_engine){//TODO: Use for blocking if THREAT multi is high
+            static_score += rep.score_mod;
             mimic_log!("       [!] Threat modifier: {}", rep.score_mod);
             if rep.is_packed {
                 let packer = rep.packer.unwrap_or("Unknown".to_string());
@@ -63,6 +58,8 @@ pub fn analyze_event(event: GalateaEvent, driver: DriverHandle, db_pool: DbPool,
                 mimic_log!("       [i] Imphash: {}", rep.imphash);
                 //TODO: check DB for imphash matches
             }
+
+            if block_on_highscore(static_score, &event, &driver) {return;}
         }
 
 
@@ -79,4 +76,18 @@ pub fn analyze_event(event: GalateaEvent, driver: DriverHandle, db_pool: DbPool,
     }
 
     
+}
+
+fn block_on_highscore(score: i32, event: &GalateaEvent, driver: &DriverHandle) -> bool{
+    if score > crate::STAT_BLOCK_THRESHOLD{
+        let verdict = GalateaVerdict{
+            process_id: event.process_id,
+            allow: false,
+            request_id: event.request_id,
+        };
+
+        send_verdict(driver.0, verdict);
+        return true;
+    }
+    false
 }

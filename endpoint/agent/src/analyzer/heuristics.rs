@@ -3,7 +3,7 @@ use std::fs;
 use goblin::pe::PE;
 use md5::{Digest, Md5};
 
-use crate::analyzer::PackerSignatureEngine;
+use crate::{HEUR_ENTROPY_SCORE, HEUR_ENTROPY_THRESHOLD, HEUR_HIDDEN_IMP_SCORE, HEUR_KNOWN_PACKER_SCORE, HEUR_RWX_SEC_SCORE, analyzer::PackerSignatureEngine};
 
 
 #[derive(Debug,Clone)]
@@ -42,6 +42,7 @@ pub fn analyze_pe(path: &str, sig_engine: &PackerSignatureEngine) -> Option<Heur
     let mut report = HeurReport::new();
 
     let mut added_ent = false;
+    let mut added_rwx = false;
     for section in &pe.sections {
 
         if let Some(packer_name) = sig_engine.scan(&pe, &buffer) {
@@ -57,14 +58,14 @@ pub fn analyze_pe(path: &str, sig_engine: &PackerSignatureEngine) -> Option<Heur
             let section_data = &buffer[start..end];
             let entropy = calculate_entropy(section_data);
         
-            if entropy > 7.2 {
+            if entropy > HEUR_ENTROPY_THRESHOLD {
                 report.high_entropy = true;
 
                 if !added_ent {
                     if report.is_packed {
-                        report.score_mod += 50;
+                        report.score_mod += HEUR_KNOWN_PACKER_SCORE;
                     }
-                    report.score_mod += 20;
+                    report.score_mod += HEUR_ENTROPY_SCORE;
                     added_ent = true;
                 }
             }
@@ -73,7 +74,10 @@ pub fn analyze_pe(path: &str, sig_engine: &PackerSignatureEngine) -> Option<Heur
         let characteristics = section.characteristics;
         if (characteristics & 0xE0000000) == 0xE0000000 {
             report.has_rwx = true;
-            report.score_mod += 40;
+            if !added_rwx && added_rwx {
+                added_rwx = true;
+                report.score_mod += HEUR_RWX_SEC_SCORE;
+            }
         }
 
     }
@@ -99,13 +103,28 @@ pub fn analyze_pe(path: &str, sig_engine: &PackerSignatureEngine) -> Option<Heur
     }
     
     if !import_list.is_empty() {
+        if import_list.len() < 3 {
+            if report.is_packed{
+                let chg = HEUR_HIDDEN_IMP_SCORE - 10;
+                report.score_mod += chg;
+            }
+            else {
+                report.score_mod += HEUR_HIDDEN_IMP_SCORE;
+            }
+        }
         let joined_imports = import_list.join(",");
         let mut hasher = Md5::new();
         hasher.update(joined_imports.as_bytes());
         let result = hasher.finalize();
         report.imphash = hex::encode(result);
     } else {
-        report.score_mod += 10;
+        if report.is_packed{
+            let chg = HEUR_HIDDEN_IMP_SCORE - 10;
+            report.score_mod += chg;
+        }
+        else {
+            report.score_mod += HEUR_HIDDEN_IMP_SCORE;
+        }
     }
 
     Some(report)

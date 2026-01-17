@@ -16,14 +16,11 @@ mod driver;
 mod db;
 mod analyzer;
 mod utils;
+mod config;
 
 use crate::{analyzer::PackerSignatureEngine, driver::DriverHandle};
 
-const DRIVER_SERVICE_NAME: &str = "Galatea";
-const DRIVER_FILE_NAME: &str = "driver.sys";
-const DB_FILE_NAME: &str = "galatea_dataset.db";
-
-const MAL_IOC_BLOCK_THRESHOLD: i32 = 50;
+pub use config::*;
 
 static GLOBAL_LISTENER_HANDLE: AtomicUsize = AtomicUsize::new(0);
 
