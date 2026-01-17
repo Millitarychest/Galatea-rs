@@ -74,7 +74,7 @@ pub fn analyze_pe(path: &str, sig_engine: &PackerSignatureEngine) -> Option<Heur
         let characteristics = section.characteristics;
         if (characteristics & 0xE0000000) == 0xE0000000 {
             report.has_rwx = true;
-            if !added_rwx && added_rwx {
+            if !added_rwx{
                 added_rwx = true;
                 report.score_mod += HEUR_RWX_SEC_SCORE;
             }

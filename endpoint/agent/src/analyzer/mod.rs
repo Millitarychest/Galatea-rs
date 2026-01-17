@@ -4,10 +4,11 @@ use mimic_core::{mimic_log};
 use shared::{GalateaEvent, GalateaVerdict};
 
 mod heuristics;
+mod authenticode;
 mod packers;
 pub use packers::PackerSignatureEngine;
 
-use crate::{db::{self, DbPool, IOCTYPE}, driver::{DriverHandle, io::send_verdict}, utils::calc_md5};
+use crate::{CODE_SIGN_FORGIVENESS, CODE_SIGN_REVOKED, CODE_SIGN_UNTRUSTED, analyzer::authenticode::verify_signature, db::{self, DbPool, IOCTYPE}, driver::{DriverHandle, io::send_verdict}, utils::calc_md5};
 
 pub fn analyze_event(event: GalateaEvent, driver: DriverHandle, db_pool: DbPool, pack_engine: Arc<PackerSignatureEngine>) {
     let image_path = String::from_utf16_lossy(&event.image_path)
@@ -41,7 +42,24 @@ pub fn analyze_event(event: GalateaEvent, driver: DriverHandle, db_pool: DbPool,
             }
         }
 
-        if let Some(rep) = heuristics::analyze_pe(&image_path, &pack_engine){//TODO: Use for blocking if THREAT multi is high
+        let sig = verify_signature(&image_path);
+        if sig.is_signed {
+            if sig.is_trusted {
+                mimic_log!("       [!] Signed and trusted: {:?}", sig.signer);
+                static_score += CODE_SIGN_FORGIVENESS;
+            }
+            else if sig.is_revoked {
+                mimic_log!("       [!] Revoked Cert: {:?}", sig.signer);
+                static_score += CODE_SIGN_REVOKED
+            }
+            else {
+                mimic_log!("       [!] Signed and not trusted: {:?}", sig.signer);
+                static_score += CODE_SIGN_UNTRUSTED
+            }
+        }
+        if block_on_highscore(static_score, &event, &driver) {return;}
+
+        if let Some(rep) = heuristics::analyze_pe(&image_path, &pack_engine){
             static_score += rep.score_mod;
             mimic_log!("       [!] Threat modifier: {}", rep.score_mod);
             if rep.is_packed {
