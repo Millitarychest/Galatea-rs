@@ -1,16 +1,28 @@
 use std::sync::Arc;
 
+use goblin::pe::PE;
 use mimic_core::{mimic_log};
 use shared::{GalateaEvent, GalateaVerdict};
 
+
 mod heuristics;
 mod authenticode;
+
 mod packers;
 pub use packers::PackerSignatureEngine;
 
-use crate::{CODE_SIGN_FORGIVENESS, CODE_SIGN_REVOKED, CODE_SIGN_UNTRUSTED, analyzer::authenticode::verify_signature, db::{self, DbPool, IOCTYPE}, driver::{DriverHandle, io::send_verdict}, utils::calc_md5};
+mod ml;
+pub use ml::MlEngine;
 
-pub fn analyze_event(event: GalateaEvent, driver: DriverHandle, db_pool: DbPool, pack_engine: Arc<PackerSignatureEngine>) {
+use crate::{CODE_SIGN_FORGIVENESS, CODE_SIGN_REVOKED, CODE_SIGN_UNTRUSTED, ML_CERTENTY_MAL, ML_MALICIOUS, analyzer::authenticode::verify_signature, db::{self, DbPool, IOCTYPE}, driver::{DriverHandle, io::send_verdict}, utils::calc_md5};
+
+pub fn analyze_event(
+    event: GalateaEvent, 
+    driver: DriverHandle, 
+    db_pool: DbPool, 
+    pack_engine: Arc<PackerSignatureEngine>,
+    ml_engine: Arc<MlEngine>
+) {
     let image_path = String::from_utf16_lossy(&event.image_path)
         .trim_matches(char::from(0))
         .to_string();
@@ -20,7 +32,7 @@ pub fn analyze_event(event: GalateaEvent, driver: DriverHandle, db_pool: DbPool,
 
         mimic_log!("[SCAN] PID: {:<6} | Image: {}", event.process_id, image_path);
         
-        //check md5 known bad
+        //md5 known bad
         let hash_md5 = match calc_md5(&image_path) {
             Ok(h) => h,
             Err(e) => {
@@ -42,6 +54,8 @@ pub fn analyze_event(event: GalateaEvent, driver: DriverHandle, db_pool: DbPool,
             }
         }
 
+        //authenticode
+
         let sig = verify_signature(&image_path);
         if sig.is_signed {
             if sig.is_trusted {
@@ -58,6 +72,21 @@ pub fn analyze_event(event: GalateaEvent, driver: DriverHandle, db_pool: DbPool,
             }
         }
         if block_on_highscore(static_score, &event, &driver) {return;}
+
+        // ml engine
+
+        if let Ok(buffer) = std::fs::read(&image_path) {
+            if let Ok(pe) = PE::parse(&buffer) {
+                let features = heuristics::extract_ml_features(&pe, &buffer);
+                let ml_prob = ml_engine.predict(&features);
+                mimic_log!("       [ML] Malicious Probability: {:.4}", ml_prob);
+                if ml_prob > ML_CERTENTY_MAL as f32 { 
+                    static_score += ML_MALICIOUS
+                }
+            }
+        }
+
+        // heuristics
 
         if let Some(rep) = heuristics::analyze_pe(&image_path, &pack_engine){
             static_score += rep.score_mod;

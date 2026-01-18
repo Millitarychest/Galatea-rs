@@ -9,6 +9,8 @@ goblin = "0.10.4"
 hex = "0.4.3"
 md-5 = "0.10.6"
 mimic-core = { git = "ssh://git@github.com/Millitarychest/mimic-core-rs.git", branch = "master", features = ["privilege","logger","shell"]}
+ndarray = "0.17.2"
+ort = "2.0.0-rc.11"
 r2d2 = "0.8.10"
 r2d2_sqlite = "0.32.0"
 rusqlite = "0.38.0"

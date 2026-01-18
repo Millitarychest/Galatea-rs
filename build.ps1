@@ -12,6 +12,10 @@ $DriverTargetDir  = "target\x86_64-pc-windows-msvc\debug"
 $GeneralDebugTargetDir  = "target\debug"
 $GeneralReleaseTargetDir  = "target\release"
 $AssetDir = "static\assets\*"
+
+$ModelPath = "models"
+$ModelName = "model.onnx"
+$ModelFName = "features.txt"
 # --- Driver build
 Write-Host "`n[i] Starting Galatea Driver Build..." -ForegroundColor Cyan
 Push-Location $DriverPath
@@ -62,6 +66,15 @@ cargo build -p hook
 $DllBuildPath = "$GeneralDebugTargetDir\$HookDllName"
 $DllDistPath = "$DistDir\$HookDllName"
 Copy-Item $DllBuildPath $DllDistPath -Force
+
+# --- Copy ML assets
+$ModelInPath = "$ModelPath\$ModelName"
+$ModelFInPath = "$ModelPath\$ModelName"
+$ModelOutPath = "$DistDir\$ModelName"
+$ModelFOutPath = "$DistDir\$ModelName"
+Write-Host "`n[i] Gathering provided model..." -ForegroundColor Cyan
+Copy-Item $ModelInPath $ModelOutPath -Force
+Copy-Item $ModelFInPath $ModelFOutPath -Force
 
 # --- Copy static assets
 

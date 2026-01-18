@@ -14,12 +14,16 @@ pub const STAT_SUSPICIOUS_THRESHOLD: i32 = 50;
 // DETECTION THRESHOLDS
 pub const HEUR_ENTROPY_THRESHOLD: f64 = 7.2;
 
+pub const ML_CERTENTY_MAL: f64 = 0.90;
 
 // SCORING WEIGHTS
 pub const HEUR_KNOWN_PACKER_SCORE: i32 = 30; // Always added with HEUR_ENTROPY_SCORE
 pub const HEUR_ENTROPY_SCORE: i32 = 25;
 pub const HEUR_RWX_SEC_SCORE: i32 = 40;
 pub const HEUR_HIDDEN_IMP_SCORE: i32 = 20;
+
 pub const CODE_SIGN_FORGIVENESS: i32 = -40;
 pub const CODE_SIGN_UNTRUSTED: i32 = 5;
 pub const CODE_SIGN_REVOKED: i32 = 100;
+
+pub const ML_MALICIOUS: i32 = 40;

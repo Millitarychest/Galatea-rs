@@ -9,6 +9,8 @@ This project was inspired by a [this post on sensepost.com](https://sensepost.co
 
 A ``Known-Badlist`` can be provided as ``galatea_dataset.db`` in the agent directory for hash checks. If one is not provided the agent will initialize a empty list in the correct format on startup.
 
+Under models scripts and a exported model for classification can be found. This was trained on a combination of [traceix data](https://huggingface.co/datasets/PerkinsFund/traceix-ai-security-telemetry/tree/main) and the [ember data](https://github.com/elastic/ember). However as i do not know a lot about ai/ml stuff this part is heavily supported by gemini, so take this part with a grain of salt.
+
 ### How to run
 > [!CAUTION]
 > **!! NEVER RUN OUTSIDE OF A VM !!**\

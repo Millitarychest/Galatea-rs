@@ -18,7 +18,7 @@ mod analyzer;
 mod utils;
 mod config;
 
-use crate::{analyzer::PackerSignatureEngine, driver::DriverHandle};
+use crate::{analyzer::{MlEngine, PackerSignatureEngine}, driver::DriverHandle};
 
 pub use config::*;
 
@@ -66,6 +66,26 @@ fn main() -> error::Result<()>{
         mimic_log!("No external userdb.txt found. Using internal heuristics only.");
     }
     let sig_engine = Arc::new(sig_engine);
+
+    // prepare Ml engine
+    let ml_path = current_dir.join("model.onnx");
+    let ml_engine = if ml_path.exists() {
+        mimic_log!("Loading AI Model from: {:?}", ml_path);
+        match MlEngine::new(ml_path.to_str().unwrap()) {
+            Ok(engine) => {
+                mimic_success!("AI Model Loaded Successfully.");
+                Some(engine)
+            },
+            Err(e) => {
+                mimic_error!("Failed to load AI Model: {}", e);
+                None
+            }
+        }
+    } else {
+        mimic_error!("model.onnx not found! ML disabled.");
+        None
+    };
+    let ml_engine = Arc::new(ml_engine.expect("Critical: ML Model missing"));
 
     // Setup worker threads
     let n_workers = 16; // Adjust
@@ -157,10 +177,11 @@ fn main() -> error::Result<()>{
                 let worker_handle = safe_handle.clone();
                 let worker_db = db_pool.clone();
                 let worker_sig = sig_engine.clone();
+                let worker_ml = ml_engine.clone();
                 let worker_event = event;
 
                 worker_pool.execute(move || {
-                    analyzer::analyze_event(worker_event, worker_handle, worker_db, worker_sig);
+                    analyzer::analyze_event(worker_event, worker_handle, worker_db, worker_sig, worker_ml);
                 });
             },
             Err(e) => {
