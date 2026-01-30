@@ -6,6 +6,7 @@
 pub const DRIVER_SERVICE_NAME: &str = "Galatea";
 pub const DRIVER_FILE_NAME: &str = "driver.sys";
 pub const DB_FILE_NAME: &str = "galatea_dataset.db";
+pub const HOOK_FILE_NAME: &str = "hook.dll";
 
 // ACTION THRESHOLDS
 pub const STAT_BLOCK_THRESHOLD: i32 = 80;

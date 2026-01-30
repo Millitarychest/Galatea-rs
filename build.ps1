@@ -61,7 +61,7 @@ Copy-Item $AgentBuildPath $AgentDistPath -Force
 
 Write-Host "`n[i] Starting Galatea Hooking Dll Build..." -ForegroundColor Cyan
 Write-Host "[>>] Compiling Hook Dll (Debug)..."
-cargo build -p hook
+cargo build -p hook #--release
 
 $DllBuildPath = "$GeneralDebugTargetDir\$HookDllName"
 $DllDistPath = "$DistDir\$HookDllName"

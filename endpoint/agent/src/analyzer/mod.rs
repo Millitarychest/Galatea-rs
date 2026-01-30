@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use goblin::pe::PE;
-use mimic_core::{mimic_log};
+use mimic_core::{mimic_error, mimic_log};
 use shared::{GalateaEvent, GalateaVerdict};
 
 
@@ -14,7 +14,7 @@ pub use packers::PackerSignatureEngine;
 mod ml;
 pub use ml::MlEngine;
 
-use crate::{CODE_SIGN_FORGIVENESS, CODE_SIGN_REVOKED, CODE_SIGN_UNTRUSTED, ML_CERTENTY_MAL, ML_MALICIOUS, analyzer::authenticode::verify_signature, db::{self, DbPool, IOCTYPE}, driver::{DriverHandle, io::send_verdict}, utils::calc_md5};
+use crate::{CODE_SIGN_FORGIVENESS, CODE_SIGN_REVOKED, CODE_SIGN_UNTRUSTED, HOOK_FILE_NAME, ML_CERTENTY_MAL, ML_MALICIOUS, analyzer::authenticode::verify_signature, db::{self, DbPool, IOCTYPE}, driver::{DriverHandle, io::send_verdict}, injector::inject_dll, utils::calc_md5};
 
 pub fn analyze_event(
     event: GalateaEvent, 
@@ -109,6 +109,13 @@ pub fn analyze_event(
             if block_on_highscore(static_score, &event, &driver) {return;}
         }
 
+        let current_exe = std::env::current_exe().map_err(|e| e.to_string()).unwrap();
+        let current_dir = current_exe.parent().unwrap();
+        let dll_path = current_dir.join(HOOK_FILE_NAME);
+        match inject_dll(event.process_id as u64, dll_path.to_str().unwrap()) {
+            Ok(_) => {mimic_log!("injected")},
+            Err(e) => mimic_error!("Inject failed: {}", e),
+        };
 
         let verdict = GalateaVerdict{
             process_id: event.process_id,

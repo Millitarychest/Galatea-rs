@@ -40,8 +40,10 @@ pub unsafe fn is_allowlisted_static(image_name: PCUNICODE_STRING) -> bool{
         let len = ((*image_name).Length / 2) as usize;
         let slice = core::slice::from_raw_parts((*image_name).Buffer, len);
 
-        let sys32 = w!("\\??\\C:\\Windows\\System32\\");
-        let syswow = w!("\\??\\C:\\Windows\\SysWOW64\\");
+        let sys32_c = w!("\\??\\C:\\Windows\\System32\\");
+        let syswow_c = w!("\\??\\C:\\Windows\\SysWOW64\\");
+        let sys32_root = w!("\\SystemRoot\\System32\\");
+        let syswow_root = w!("\\SystemRoot\\SysWOW64\\");
 
         fn to_upper(c: u16) -> u16 {
             if c >= b'a' as u16 && c <= b'z' as u16 {
@@ -61,7 +63,7 @@ pub unsafe fn is_allowlisted_static(image_name: PCUNICODE_STRING) -> bool{
                 .all(|(h, n)| to_upper(*h) == to_upper(*n))
         }
 
-        starts_with_ignore_case(slice, sys32) || starts_with_ignore_case(slice, syswow)
+        starts_with_ignore_case(slice, sys32_c) || starts_with_ignore_case(slice, syswow_c) || starts_with_ignore_case(slice, sys32_root) || starts_with_ignore_case(slice, syswow_root)
     }
 
 }

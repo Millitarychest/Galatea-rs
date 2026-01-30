@@ -41,12 +41,12 @@ __Stages:__
 1. Endpoint 
     1. Logic
         - [x] Basic Driver Setup
-        - [ ] Static checks
+        - [X] Static checks
             - [x] Known Bad (only md5 atm)
-            - [ ] Signature
+            - [X] Signature
             - [X] Heuristics (Packing)
-        - [ ] ML based static detection
-        - [ ] Dll based Userland hooks
+        - [X] ML based static detection
+        - [~] Dll based Userland hooks
         - [ ] Bilateral Health checks (Is Driver/agent alive?)
     2. Ui
         - [ ] Config screen

@@ -17,6 +17,7 @@ mod db;
 mod analyzer;
 mod utils;
 mod config;
+mod injector;
 
 use crate::{analyzer::{MlEngine, PackerSignatureEngine}, driver::DriverHandle};
 
