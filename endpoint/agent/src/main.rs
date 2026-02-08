@@ -1,38 +1,53 @@
-use std::{env, path::PathBuf, sync::{Arc, atomic::{AtomicUsize, Ordering}}};
+use std::{
+    env,
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
 
-use threadpool::ThreadPool;
-use windows::{Win32::{Foundation::HANDLE, System::IO::CancelIoEx}, core::w};
-use windows::Win32::Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE};
-use windows::Win32::Storage::FileSystem::{CreateFileW, FILE_ATTRIBUTE_NORMAL, OPEN_EXISTING, FILE_SHARE_READ, FILE_SHARE_WRITE};
-use windows::Win32::System::IO::DeviceIoControl;
 use std::ffi::c_void;
 use std::mem::size_of;
+use threadpool::ThreadPool;
+use windows::Win32::Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE};
+use windows::Win32::Storage::FileSystem::{
+    CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+};
+use windows::Win32::System::IO::DeviceIoControl;
+use windows::{
+    Win32::{Foundation::HANDLE, System::IO::CancelIoEx},
+    core::w,
+};
 
 use mimic_core::{error, mimic_bail, mimic_error, mimic_log, mimic_success, privilege};
 use shared::{GalateaEvent, IOCTL_GET_EVENT};
 
-
-mod driver;
-mod db;
 mod analyzer;
-mod utils;
 mod config;
+mod db;
+mod driver;
+mod engine;
 mod injector;
+mod utils;
 
-use crate::{analyzer::{MlEngine, PackerSignatureEngine}, driver::DriverHandle};
+use crate::engine::ipc_server::IpcServer;
+use crate::{
+    analyzer::{MlEngine, PackerSignatureEngine},
+    driver::DriverHandle,
+};
 
 pub use config::*;
 
 static GLOBAL_LISTENER_HANDLE: AtomicUsize = AtomicUsize::new(0);
 
-
-fn main() -> error::Result<()>{
+fn main() -> error::Result<()> {
     mimic_log!("Initializing Galatea Agent...");
 
     if cfg!(debug_assertions) {
         ctrlc::set_handler(move || {
             mimic_log!("[DEV] Ctrl+C Detected! Initiating cleanup...");
-            
+
             let handle_val = GLOBAL_LISTENER_HANDLE.load(Ordering::SeqCst);
 
             if handle_val != 0 {
@@ -41,13 +56,12 @@ fn main() -> error::Result<()>{
                     let _ = CancelIoEx(handle, None);
                 }
             }
-            
-        }).expect("Error setting Ctrl-C handler");
+        })
+        .expect("Error setting Ctrl-C handler");
     }
 
     init_driver()?;
 
-    
     // Setup Database Connection
     let current_exe = env::current_exe().map_err(|e| e.to_string())?;
     let current_dir = current_exe.parent().unwrap();
@@ -76,7 +90,7 @@ fn main() -> error::Result<()>{
             Ok(engine) => {
                 mimic_success!("AI Model Loaded Successfully.");
                 Some(engine)
-            },
+            }
             Err(e) => {
                 mimic_error!("Failed to load AI Model: {}", e);
                 None
@@ -92,7 +106,6 @@ fn main() -> error::Result<()>{
     let n_workers = 16; // Adjust
     let worker_pool = ThreadPool::new(n_workers);
     mimic_log!("Analysis Engine: {} Workers ready.", n_workers);
-
 
     // Event loop
     let device_name = w!("\\\\.\\Galatea");
@@ -134,7 +147,9 @@ fn main() -> error::Result<()>{
         Ok(h) => h,
         Err(_) => {
             mimic_error!("Failed to open control handle.");
-            unsafe { let _ = CloseHandle(listener_handle);};
+            unsafe {
+                let _ = CloseHandle(listener_handle);
+            };
             cleanup();
             mimic_bail!("Could not open control handle");
         }
@@ -152,6 +167,9 @@ fn main() -> error::Result<()>{
     }
 
     let safe_handle = DriverHandle(control_handle);
+
+    // Initialize IPC server
+    let ipc_sender = IpcServer::start();
 
     mimic_success!("Galatea Systems: Online");
     mimic_log!("(Press Ctrl+C to stop the agent)");
@@ -179,12 +197,20 @@ fn main() -> error::Result<()>{
                 let worker_db = db_pool.clone();
                 let worker_sig = sig_engine.clone();
                 let worker_ml = ml_engine.clone();
+                let worker_ipc = ipc_sender.clone();
                 let worker_event = event;
 
                 worker_pool.execute(move || {
-                    analyzer::analyze_event(worker_event, worker_handle, worker_db, worker_sig, worker_ml);
+                    analyzer::analyze_event(
+                        worker_event,
+                        worker_handle,
+                        worker_db,
+                        worker_sig,
+                        worker_ml,
+                        worker_ipc,
+                    );
                 });
-            },
+            }
             Err(e) => {
                 eprintln!("DeviceIoControl failed: {:?}", e);
                 break;
@@ -198,24 +224,26 @@ fn main() -> error::Result<()>{
     Ok(())
 }
 
-fn cleanup(){
+fn cleanup() {
     let _ = driver::mgmt::stop_driver_service(DRIVER_SERVICE_NAME);
     let _ = driver::mgmt::uninstall_driver_service(DRIVER_SERVICE_NAME);
 }
 
-fn init_driver()-> error::Result<()>{
+fn init_driver() -> error::Result<()> {
     // increase process prio
     unsafe {
         let current_process = windows::Win32::System::Threading::GetCurrentProcess();
         let _ = windows::Win32::System::Threading::SetPriorityClass(
-            current_process, 
-            windows::Win32::System::Threading::HIGH_PRIORITY_CLASS
+            current_process,
+            windows::Win32::System::Threading::HIGH_PRIORITY_CLASS,
         );
     }
 
     //setup driver
     if !privilege::is_elevated() {
-        mimic_error!("Elevation Required: Galatea Agent must run as Administrator to load drivers.");
+        mimic_error!(
+            "Elevation Required: Galatea Agent must run as Administrator to load drivers."
+        );
         return Ok(());
     }
 
@@ -245,6 +273,8 @@ fn resolve_driver_path() -> Result<PathBuf, String> {
         return Ok(prod_path);
     }
 
-    Err(format!("Could not locate '{}'. Checked local dir and target/dist.", DRIVER_FILE_NAME))
+    Err(format!(
+        "Could not locate '{}'. Checked local dir and target/dist.",
+        DRIVER_FILE_NAME
+    ))
 }
-

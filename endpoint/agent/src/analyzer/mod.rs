@@ -1,12 +1,12 @@
-use std::sync::Arc;
+use std::sync::{Arc, mpsc::Sender};
 
 use goblin::pe::PE;
 use mimic_core::{mimic_error, mimic_log};
+use shared::ipc::IpcMessage;
 use shared::{GalateaEvent, GalateaVerdict};
 
-
-mod heuristics;
 mod authenticode;
+mod heuristics;
 
 mod packers;
 pub use packers::PackerSignatureEngine;
@@ -14,42 +14,79 @@ pub use packers::PackerSignatureEngine;
 mod ml;
 pub use ml::MlEngine;
 
-use crate::{CODE_SIGN_FORGIVENESS, CODE_SIGN_REVOKED, CODE_SIGN_UNTRUSTED, HOOK_FILE_NAME, ML_CERTENTY_MAL, ML_MALICIOUS, analyzer::authenticode::verify_signature, db::{self, DbPool, IOCTYPE}, driver::{DriverHandle, io::send_verdict}, injector::inject_dll, utils::calc_md5};
+use crate::engine::correlation::{AnalysisResult, correlate_and_broadcast};
+use crate::{
+    CODE_SIGN_FORGIVENESS, CODE_SIGN_REVOKED, CODE_SIGN_UNTRUSTED, HOOK_FILE_NAME, ML_CERTENTY_MAL,
+    ML_MALICIOUS,
+    analyzer::authenticode::verify_signature,
+    db::{self, DbPool, IOCTYPE},
+    driver::{DriverHandle, io::send_verdict},
+    injector::inject_dll,
+    utils::calc_md5,
+};
 
 pub fn analyze_event(
-    event: GalateaEvent, 
-    driver: DriverHandle, 
-    db_pool: DbPool, 
+    event: GalateaEvent,
+    driver: DriverHandle,
+    db_pool: DbPool,
     pack_engine: Arc<PackerSignatureEngine>,
-    ml_engine: Arc<MlEngine>
+    ml_engine: Arc<MlEngine>,
+    ipc_sender: Option<Sender<IpcMessage>>,
 ) {
     let image_path = String::from_utf16_lossy(&event.image_path)
         .trim_matches(char::from(0))
         .to_string();
 
-    if event.frozen{
+    if event.frozen {
         let mut static_score = 0;
+        let mut sig_match: Option<(String, i32, String)> = None;
+        let mut auth_info: Option<(bool, bool, bool, Option<String>, i32)> = None;
+        let mut heur_info: Option<(bool, Option<String>, bool, bool, Option<String>, i32)> = None;
+        let mut ml_info: Option<(f32, i32)> = None;
 
-        mimic_log!("[SCAN] PID: {:<6} | Image: {}", event.process_id, image_path);
-        
+        mimic_log!(
+            "[SCAN] PID: {:<6} | Image: {}",
+            event.process_id,
+            image_path
+        );
+
         //md5 known bad
         let hash_md5 = match calc_md5(&image_path) {
             Ok(h) => h,
             Err(e) => {
                 mimic_log!("[WARN] Failed to hash {}: {:?}", image_path, e);
                 String::new()
-            },
+            }
         };
-        
-        if !hash_md5.is_empty(){ // TODO: Adjust to allow for less severe sightings (PUPs)
-            if let Some(sig) = db::check_signature(&db_pool, &hash_md5) && sig.ioc_type == IOCTYPE::Md5Hash{
+
+        if !hash_md5.is_empty() {
+            // TODO: Adjust to allow for less severe sightings (PUPs)
+            if let Some(sig) = db::check_signature(&db_pool, &hash_md5)
+                && sig.ioc_type == IOCTYPE::Md5Hash
+            {
                 mimic_log!("[ALERT] Known Malicious File Detected!");
                 mimic_log!("        File: {}", image_path);
                 mimic_log!("        Hash: {}", sig.hash);
                 mimic_log!("        Meta: {}", sig.meta);
                 mimic_log!("        Score: {}", sig.verdict);
 
-                if block_on_highscore(sig.verdict, &event, &driver) {return;}
+                sig_match = Some((sig.hash.clone(), sig.verdict, sig.meta.clone()));
+
+                if block_on_highscore(sig.verdict, &event, &driver) {
+                    // Blocked - send to correlation with blocked verdict
+                    let result = AnalysisResult {
+                        event,
+                        threat_score: sig.verdict,
+                        md5_hash: Some(hash_md5),
+                        signature_match: sig_match,
+                        authenticode: None,
+                        heuristics: None,
+                        ml_prediction: None,
+                        verdict_allow: false,
+                    };
+                    correlate_and_broadcast(result, driver, ipc_sender.as_ref());
+                    return;
+                }
                 static_score += sig.verdict;
             }
         }
@@ -61,17 +98,31 @@ pub fn analyze_event(
             if sig.is_trusted {
                 mimic_log!("       [!] Signed and trusted: {:?}", sig.signer);
                 static_score += CODE_SIGN_FORGIVENESS;
-            }
-            else if sig.is_revoked {
+                auth_info = Some((true, true, false, sig.signer.clone(), CODE_SIGN_FORGIVENESS));
+            } else if sig.is_revoked {
                 mimic_log!("       [!] Revoked Cert: {:?}", sig.signer);
-                static_score += CODE_SIGN_REVOKED
-            }
-            else {
+                static_score += CODE_SIGN_REVOKED;
+                auth_info = Some((true, false, true, sig.signer.clone(), CODE_SIGN_REVOKED));
+            } else {
                 mimic_log!("       [!] Signed and not trusted: {:?}", sig.signer);
-                static_score += CODE_SIGN_UNTRUSTED
+                static_score += CODE_SIGN_UNTRUSTED;
+                auth_info = Some((true, false, false, sig.signer.clone(), CODE_SIGN_UNTRUSTED));
             }
         }
-        if block_on_highscore(static_score, &event, &driver) {return;}
+        if block_on_highscore(static_score, &event, &driver) {
+            let result = AnalysisResult {
+                event,
+                threat_score: static_score,
+                md5_hash: Some(hash_md5),
+                signature_match: sig_match,
+                authenticode: auth_info,
+                heuristics: None,
+                ml_prediction: None,
+                verdict_allow: false,
+            };
+            correlate_and_broadcast(result, driver, ipc_sender.as_ref());
+            return;
+        }
 
         // ml engine
 
@@ -80,19 +131,20 @@ pub fn analyze_event(
                 let features = heuristics::extract_ml_features(&pe, &buffer);
                 let ml_prob = ml_engine.predict(&features);
                 mimic_log!("       [ML] Malicious Probability: {:.4}", ml_prob);
-                if ml_prob > ML_CERTENTY_MAL as f32 { 
-                    static_score += ML_MALICIOUS
+                if ml_prob > ML_CERTENTY_MAL as f32 {
+                    static_score += ML_MALICIOUS;
+                    ml_info = Some((ml_prob, ML_MALICIOUS));
                 }
             }
         }
 
         // heuristics
 
-        if let Some(rep) = heuristics::analyze_pe(&image_path, &pack_engine){
+        if let Some(rep) = heuristics::analyze_pe(&image_path, &pack_engine) {
             static_score += rep.score_mod;
             mimic_log!("       [!] Threat modifier: {}", rep.score_mod);
             if rep.is_packed {
-                let packer = rep.packer.unwrap_or("Unknown".to_string());
+                let packer = rep.packer.clone().unwrap_or("Unknown".to_string());
                 mimic_log!("       [!] Detected Binary Toolchain({})", packer);
             }
             if rep.has_rwx {
@@ -106,35 +158,69 @@ pub fn analyze_event(
                 //TODO: check DB for imphash matches
             }
 
-            if block_on_highscore(static_score, &event, &driver) {return;}
+            heur_info = Some((
+                rep.is_packed,
+                rep.packer.clone(),
+                rep.has_rwx,
+                rep.high_entropy,
+                if !rep.imphash.is_empty() {
+                    Some(rep.imphash.clone())
+                } else {
+                    None
+                },
+                rep.score_mod,
+            ));
+
+            if block_on_highscore(static_score, &event, &driver) {
+                let result = AnalysisResult {
+                    event,
+                    threat_score: static_score,
+                    md5_hash: Some(hash_md5),
+                    signature_match: sig_match,
+                    authenticode: auth_info,
+                    heuristics: heur_info,
+                    ml_prediction: ml_info,
+                    verdict_allow: false,
+                };
+                correlate_and_broadcast(result, driver, ipc_sender.as_ref());
+                return;
+            }
         }
 
         let current_exe = std::env::current_exe().map_err(|e| e.to_string()).unwrap();
         let current_dir = current_exe.parent().unwrap();
         let dll_path = current_dir.join(HOOK_FILE_NAME);
         match inject_dll(event.process_id as u64, dll_path.to_str().unwrap()) {
-            Ok(_) => {mimic_log!("injected")},
+            Ok(_) => {
+                mimic_log!("injected")
+            }
             Err(e) => mimic_error!("Inject failed: {}", e),
         };
 
-        let verdict = GalateaVerdict{
-            process_id: event.process_id,
-            allow: true,
-            request_id: event.request_id,
+        // Allowed - send to correlation
+        let result = AnalysisResult {
+            event,
+            threat_score: static_score,
+            md5_hash: Some(hash_md5),
+            signature_match: sig_match,
+            authenticode: auth_info,
+            heuristics: heur_info,
+            ml_prediction: ml_info,
+            verdict_allow: true,
         };
-
-        send_verdict(driver.0, verdict);
+        correlate_and_broadcast(result, driver, ipc_sender.as_ref());
+    } else {
+        mimic_log!(
+            "[FAST] PID: {:<6} | Image: {}",
+            event.process_id,
+            image_path
+        );
     }
-    else {
-        mimic_log!("[FAST] PID: {:<6} | Image: {}", event.process_id, image_path);
-    }
-
-    
 }
 
-fn block_on_highscore(score: i32, event: &GalateaEvent, driver: &DriverHandle) -> bool{
-    if score > crate::STAT_BLOCK_THRESHOLD{
-        let verdict = GalateaVerdict{
+fn block_on_highscore(score: i32, event: &GalateaEvent, driver: &DriverHandle) -> bool {
+    if score > crate::STAT_BLOCK_THRESHOLD {
+        let verdict = GalateaVerdict {
             process_id: event.process_id,
             allow: false,
             request_id: event.request_id,

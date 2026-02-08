@@ -67,6 +67,17 @@ $DllBuildPath = "$GeneralDebugTargetDir\$HookDllName"
 $DllDistPath = "$DistDir\$HookDllName"
 Copy-Item $DllBuildPath $DllDistPath -Force
 
+# --- GUI build
+
+Write-Host "`n[i] Starting Galatea GUI Build..." -ForegroundColor Cyan
+Write-Host "[>>] Compiling GUI (Debug)..."
+cargo build -p gui
+
+$GuiName = "gui.exe"
+$GuiBuildPath = "$GeneralDebugTargetDir\$GuiName"
+$GuiDistPath = "$DistDir\$GuiName"
+Copy-Item $GuiBuildPath $GuiDistPath -Force
+
 # --- Copy ML assets
 $ModelInPath = "$ModelPath\$ModelName"
 $ModelFInPath = "$ModelPath\$ModelName"

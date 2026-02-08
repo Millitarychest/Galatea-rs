@@ -1,6 +1,6 @@
 [workspace]
 resolver="3"
-members = [ "endpoint/agent","endpoint/driver", "endpoint/hook", "endpoint/shared"]
+members = [ "endpoint/agent","endpoint/driver", "endpoint/hook", "endpoint/shared", "endpoint/client"]
 
 
 [profile.dev]
