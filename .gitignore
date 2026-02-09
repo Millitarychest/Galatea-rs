@@ -241,3 +241,4 @@ poetry.toml
 pyrightconfig.json
 
 
+.vscode/settings.json

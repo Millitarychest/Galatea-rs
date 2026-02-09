@@ -1,9 +1,10 @@
 use iced::widget::{column, container};
 use iced::{Element, Task, Theme};
 use shared::ipc::{DetectionEvent, IpcMessage};
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 
 use crate::ipc_client::{IpcClient, IpcClientMessage};
+use crate::theme::AppTheme;
 use crate::ui;
 
 const MAX_DETECTIONS: usize = 1000;
@@ -12,8 +13,12 @@ pub struct GalateaGui {
     ipc_client: IpcClient,
     connected: bool,
     detections: VecDeque<DetectionEvent>,
+    pending_detections: VecDeque<DetectionEvent>,
     selected_detection: Option<usize>,
+    expanded_events: HashSet<String>,
     filter_text: String,
+    current_theme: AppTheme,
+    paused: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -21,6 +26,9 @@ pub enum Message {
     IpcEvent(IpcClientMessage),
     FilterChanged(String),
     DetectionSelected(usize),
+    ToggleExpanded(String),
+    ThemeChanged,
+    TogglePause,
     Tick,
 }
 
@@ -30,8 +38,12 @@ impl Default for GalateaGui {
             ipc_client: IpcClient::start(),
             connected: false,
             detections: VecDeque::new(),
+            pending_detections: VecDeque::new(),
             selected_detection: None,
+            expanded_events: HashSet::new(),
             filter_text: String::new(),
+            current_theme: AppTheme::default(),
+            paused: false,
         }
     }
 }
@@ -48,11 +60,19 @@ impl GalateaGui {
                         self.connected = false;
                     }
                     IpcClientMessage::Message(IpcMessage::Detection(detection)) => {
-                        self.detections.push_front(detection);
-
-                        // Keep only last MAX_DETECTIONS
-                        if self.detections.len() > MAX_DETECTIONS {
-                            self.detections.pop_back();
+                        // If paused, add to pending; otherwise add to visible detections
+                        if self.paused {
+                            self.pending_detections.push_front(detection);
+                            // Keep pending list from growing too large
+                            if self.pending_detections.len() > MAX_DETECTIONS {
+                                self.pending_detections.pop_back();
+                            }
+                        } else {
+                            self.detections.push_front(detection);
+                            // Keep only last MAX_DETECTIONS
+                            if self.detections.len() > MAX_DETECTIONS {
+                                self.detections.pop_back();
+                            }
                         }
                     }
                     IpcClientMessage::Message(_) => {
@@ -66,6 +86,33 @@ impl GalateaGui {
             Message::DetectionSelected(index) => {
                 self.selected_detection = Some(index);
             }
+            Message::ToggleExpanded(event_id) => {
+                if self.expanded_events.contains(&event_id) {
+                    self.expanded_events.remove(&event_id);
+                } else {
+                    self.expanded_events.insert(event_id);
+                    // Auto-pause when expanding an event
+                    if !self.paused {
+                        self.paused = true;
+                    }
+                }
+            }
+            Message::ThemeChanged => {
+                self.current_theme = self.current_theme.next();
+            }
+            Message::TogglePause => {
+                self.paused = !self.paused;
+                // When unpausing, move all pending detections to visible list
+                if !self.paused {
+                    while let Some(detection) = self.pending_detections.pop_back() {
+                        self.detections.push_front(detection);
+                    }
+                    // Trim to MAX_DETECTIONS
+                    while self.detections.len() > MAX_DETECTIONS {
+                        self.detections.pop_back();
+                    }
+                }
+            }
             Message::Tick => {
                 // Poll IPC client for new messages
                 while let Some(event) = self.ipc_client.try_recv() {
@@ -77,10 +124,22 @@ impl GalateaGui {
         Task::none()
     }
 
-    pub fn view(&self) -> Element<Message> {
+    pub fn view(&'_ self) -> Element<'_, Message> {
         let content = column![
-            ui::header::view(self.connected, self.detections.len(), &self.filter_text),
-            ui::detection_list::view(&self.detections, &self.filter_text, self.selected_detection),
+            ui::header::view(
+                self.connected,
+                self.detections.len(),
+                &self.filter_text,
+                self.current_theme,
+                self.paused,
+                self.pending_detections.len()
+            ),
+            ui::detection_list::view(
+                &self.detections,
+                &self.filter_text,
+                self.selected_detection,
+                &self.expanded_events
+            ),
         ]
         .spacing(0);
 
@@ -104,6 +163,6 @@ impl GalateaGui {
     }
 
     pub fn theme(&self) -> Theme {
-        Theme::Dark
+        self.current_theme.to_iced_theme()
     }
 }

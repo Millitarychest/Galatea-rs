@@ -1,11 +1,16 @@
 use std::{arch::asm, ffi::c_void};
 
-use windows::{Win32::{
-    Foundation::HANDLE,
-    System::{
-        Diagnostics::Debug::OutputDebugStringA, Threading::{GetCurrentProcessId, GetProcessId}, WindowsProgramming::CLIENT_ID
+use windows::{
+    Win32::{
+        Foundation::HANDLE,
+        System::{
+            Diagnostics::Debug::OutputDebugStringA,
+            Threading::{GetCurrentProcessId, GetProcessId},
+            WindowsProgramming::CLIENT_ID,
+        },
     },
-}, core::PCSTR};
+    core::PCSTR,
+};
 
 use crate::ssn::SYSCALL_NUMBER;
 
@@ -27,7 +32,9 @@ pub fn nt_open_process(
     }
 
     let msg = "Open Process Hook!\n\0";
-    unsafe {OutputDebugStringA(PCSTR(msg.as_ptr()));}
+    unsafe {
+        OutputDebugStringA(PCSTR(msg.as_ptr()));
+    }
 
     let ssn = *SYSCALL_NUMBER
         .get("ZwOpenProcess")
@@ -49,6 +56,7 @@ pub fn nt_open_process(
 }
 
 /// Syscall hook for ZwAllocateVirtualMemory
+#[allow(asm_sub_register)]
 pub fn virtual_alloc_ex(
     process_handle: HANDLE,
     base_address: *mut c_void,
@@ -71,7 +79,9 @@ pub fn virtual_alloc_ex(
     }
 
     let msg = "NTalloc!\n\0";
-    unsafe {OutputDebugStringA(PCSTR(msg.as_ptr()));}
+    unsafe {
+        OutputDebugStringA(PCSTR(msg.as_ptr()));
+    }
 
     // proceed with the syscall
     let ssn = *SYSCALL_NUMBER

@@ -34,6 +34,7 @@ impl From<SendHandle> for HANDLE {
     }
 }
 
+#[allow(dead_code)]
 pub struct IpcServer {
     sender: Sender<IpcMessage>,
 }

@@ -71,9 +71,9 @@ Copy-Item $DllBuildPath $DllDistPath -Force
 
 Write-Host "`n[i] Starting Galatea GUI Build..." -ForegroundColor Cyan
 Write-Host "[>>] Compiling GUI (Debug)..."
-cargo build -p gui
+cargo build -p client
 
-$GuiName = "gui.exe"
+$GuiName = "client.exe"
 $GuiBuildPath = "$GeneralDebugTargetDir\$GuiName"
 $GuiDistPath = "$DistDir\$GuiName"
 Copy-Item $GuiBuildPath $GuiDistPath -Force
