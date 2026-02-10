@@ -1,28 +1,32 @@
 # Galatea Suite
 
 > [!NOTE]
-> This is a Rust rewrite of my dummy EDR "[Galatea EDR](https://github.com/Millitarychest/Galatea)", as i dislike working with c / c++.
+> This is a Rust rewrite of my dummy EDR "[Galatea EDR](https://github.com/Millitarychest/Galatea)", as I dislike working with c / c++.
 
 ### Description
 The Galatea Suite is a very basic EDR written for Windows to gain a better understanding of EDR solutions and windows driver development.
-This project was inspired by a [this post on sensepost.com](https://sensepost.com/blog/2024/sensecon-23-from-windows-drivers-to-an-almost-fully-working-edr/)
+This project was inspired by [this post on sensepost.com](https://sensepost.com/blog/2024/sensecon-23-from-windows-drivers-to-an-almost-fully-working-edr/)
 
 A ``Known-Badlist`` can be provided as ``galatea_dataset.db`` in the agent directory for hash checks. If one is not provided the agent will initialize a empty list in the correct format on startup.
 
 Under models scripts and a exported model for classification can be found. This was trained on a combination of [traceix data](https://huggingface.co/datasets/PerkinsFund/traceix-ai-security-telemetry/tree/main) and the [ember data](https://github.com/elastic/ember). However as i do not know a lot about ai/ml stuff this part is heavily supported by gemini, so take this part with a grain of salt.
 
+For a list of currently implemented features and what is planned check [``docs\roadmap.md``](docs/roadmap.md)
+
+<br>
+
 ### How to run
 > [!CAUTION]
 > **!! NEVER RUN OUTSIDE OF A VM !!**\
-> This is an experimental project written by someone that is an idiot
+> This is an experimental project written by an idiot
 > Given that the EDR requires elevate permissions as well as a kernel driver, it can really screw up your PC or at the very least cause it to BSOD
 
-Build the project by running the ```build.ps1``` script to run each project with the needed config. This will create the ```target/dist``` folder containing the resulting binaries and metadata files.
+Build the project and setup your VM via the instructions in [``docs\SETUP.md``](docs/setup.md)
  
 Follow the steps below to run the EDR. (Admin rights are required)
-1. Setup your VM to allow self-signed drivers via ``bcdedit /set testsigning on`` ``bcdedit -debug on`` 
-2. Start the agent by running ``Agent.exe``. This should automatically setup and start the driver aswell
-3. (Optional) Currently to receive all output it is recommended to run ``Dbgview.exe`` and enable ``Capture Kernel``
+1. Start the agent by running ``agent.exe``. This should automatically setup and start the driver aswell
+2. Start the client by running ``client.exe`` to open the GUI and receive verdicts
+3. (Optional) Currently to receive all output it is recommended to run ``Dbgview.exe`` and enable ``Capture Kernel`` to receive kernel output
 
 To stop the EDR:
 1. Stop the agent by pressing ```ctrl+c``` the agent will then run a few short clean ups and exit
@@ -30,32 +34,14 @@ To stop the EDR:
 
 
 ## Screenshots:
+**Client GUI:**
+![Client GUI](static/images/client_gui.png "Client GUI")
+
 **Agent Output:**
 ![Agent Output](static/images/agent_output.png "Agent Output")
 
-### Prerequisites:
-[cargo-make](https://github.com/sagiegurari/cargo-make) is required for building the driver
+<br>
 
-### Roadmap
-__Stages:__
-1. Endpoint 
-    1. Logic
-        - [x] Basic Driver Setup
-        - [X] Static checks
-            - [x] Known Bad (only md5 atm)
-            - [X] Signature
-            - [X] Heuristics (Packing)
-        - [X] ML based static detection
-        - [~] Dll based Userland hooks
-        - [ ] Bilateral Health checks (Is Driver/agent alive?)
-    2. Ui
-        - [ ] Config screen
-        - [ ] Exclusions and custom indicatiors 
-    3. Hardening
-        - [x] Register Agent to prevent other processes from sending verdicts
-        - [ ] Split Agent and restrict driver to Service Principal
-2. Server
-    1. Log gathering from Endpoint
 
 ### Credits
 - The IoCs used during development for the ``known bad`` list originate from [virusshare.com](https://virusshare.com/hashes).
