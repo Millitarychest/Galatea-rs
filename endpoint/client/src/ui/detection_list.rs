@@ -93,7 +93,7 @@ fn detection_row<'a>(
             .width(Length::Fixed(100.0)),
         text(verdict_text)
             .size(12)
-            .style(move |theme: &iced::Theme| text::Style {
+            .style(move |_theme: &iced::Theme| text::Style {
                 color: Some(verdict_color),
             }),
         text(if expanded { "▼" } else { "▶" })
@@ -206,7 +206,7 @@ fn expanded_details<'a>(detection: &'a DetectionEvent) -> Element<'a, Message> {
         details = details.push(
             text("Signature Match")
                 .size(14)
-                .style(|theme: &iced::Theme| text::Style {
+                .style(|_theme: &iced::Theme| text::Style {
                     color: Some(iced::Color::from_rgb(0.9, 0.5, 0.5)),
                 }),
         );
@@ -250,7 +250,7 @@ fn expanded_details<'a>(detection: &'a DetectionEvent) -> Element<'a, Message> {
         details = details.push(
             text("Heuristic Analysis")
                 .size(14)
-                .style(|theme: &iced::Theme| text::Style {
+                .style(|_theme: &iced::Theme| text::Style {
                     color: Some(iced::Color::from_rgb(0.9, 0.7, 0.5)),
                 }),
         );
@@ -283,7 +283,7 @@ fn expanded_details<'a>(detection: &'a DetectionEvent) -> Element<'a, Message> {
         details = details.push(
             text("ML Prediction")
                 .size(14)
-                .style(|theme: &Theme| text::Style {
+                .style(|_theme: &Theme| text::Style {
                     color: Some(iced::Color::from_rgb(0.7, 0.5, 0.9)),
                 }),
         );
@@ -315,13 +315,13 @@ fn detail_row<'a>(label: &'a str, value: String) -> Element<'a, Message> {
             text(format!("{}: ", label))
                 .size(11)
                 .width(Length::Fixed(150.0))
-                .style(|theme: &iced::Theme| text::Style {
+                .style(|_theme: &iced::Theme| text::Style {
                     color: Some(iced::Color::from_rgb(0.6, 0.6, 0.6)),
                 }),
             text_input("", &value)
                 .size(11)
                 .padding(0)
-                .style(|theme: &iced::Theme, _status| text_input::Style {
+                .style(|_theme: &iced::Theme, _status| text_input::Style {
                     background: iced::Background::Color(iced::Color::TRANSPARENT),
                     border: iced::Border::default(),
                     icon: iced::Color::TRANSPARENT,

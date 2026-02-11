@@ -70,7 +70,7 @@ pub fn virtual_alloc_ex(
 
     // send telemetry in the case of a remote allocation
     if pid != remote_pid {
-        let region_size_checked = if region_size.is_null() {
+        let _region_size_checked = if region_size.is_null() {
             0
         } else {
             // SAFETY: Null pointer checked above
@@ -88,6 +88,7 @@ pub fn virtual_alloc_ex(
         .get("ZwAllocateVirtualMemory")
         .expect("[hook] failed to find function hook for ZwAllocateVirtualMemory");
 
+    #[allow(unused_assignments)]
     let mut result: u32 = 999;
     unsafe {
         asm!(

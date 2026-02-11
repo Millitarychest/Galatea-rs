@@ -9,7 +9,7 @@ This project was inspired by [this post on sensepost.com](https://sensepost.com/
 
 A ``Known-Badlist`` can be provided as ``galatea_dataset.db`` in the agent directory for hash checks. If one is not provided the agent will initialize a empty list in the correct format on startup.
 
-Under models scripts and a exported model for classification can be found. This was trained on a combination of [traceix data](https://huggingface.co/datasets/PerkinsFund/traceix-ai-security-telemetry/tree/main) and the [ember data](https://github.com/elastic/ember). However as i do not know a lot about ai/ml stuff this part is heavily supported by gemini, so take this part with a grain of salt.
+Under models scripts and a exported model for classification can be found. This was trained on a combination of [traceix data](https://huggingface.co/datasets/PerkinsFund/traceix-ai-security-telemetry/tree/main) and the [ember data](https://github.com/elastic/ember).
 
 For a list of currently implemented features and what is planned check [``docs\roadmap.md``](docs/roadmap.md)
 
@@ -42,8 +42,14 @@ To stop the EDR:
 
 <br>
 
+> [!NOTE]
+> This projected was supported by Ai for the following parts:
+> - Machine learning 
+> - Gui
+
 
 ### Credits
+
 - The IoCs used during development for the ``known bad`` list originate from [virusshare.com](https://virusshare.com/hashes).
 - The Packer signatures in ``userdb.txt`` originate from [peid](https://github.com/packing-box/peid/blob/main/src/peid/db/userdb.txt), which themself credits: BobSoft, BobSoft_big, PEiDTab, ExeinfoPe, PEV and this [packing-box dataset](https://github.com/packing-box/dataset-packed-pe)
 

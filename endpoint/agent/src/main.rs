@@ -2,8 +2,7 @@ use std::{
     env,
     path::PathBuf,
     sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
+        Arc, OnceLock, atomic::{AtomicUsize, Ordering}
     },
 };
 
@@ -30,16 +29,19 @@ mod driver;
 mod engine;
 mod injector;
 mod utils;
-
-use crate::engine::ipc_server::IpcServer;
+mod ipc;
+mod cache;
+use crate::{cache::static_analyzer_cache::StaticResultCache, ipc::ipc_server::IpcServer};
 use crate::{
     analyzer::{MlEngine, PackerSignatureEngine},
     driver::DriverHandle,
 };
-
 pub use config::*;
 
+
+
 static GLOBAL_LISTENER_HANDLE: AtomicUsize = AtomicUsize::new(0);
+static STATIC_RESULT_CACHE: OnceLock<StaticResultCache> = OnceLock::new();
 
 fn main() -> error::Result<()> {
     mimic_log!("Initializing Galatea Agent...");

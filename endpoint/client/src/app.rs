@@ -21,6 +21,7 @@ pub struct GalateaGui {
     paused: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum Message {
     IpcEvent(IpcClientMessage),

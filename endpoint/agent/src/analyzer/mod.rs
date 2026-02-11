@@ -1,8 +1,10 @@
+use std::fs;
 use std::sync::{Arc, mpsc::Sender};
+use std::time::SystemTime;
 
 use goblin::pe::PE;
 use mimic_core::{mimic_error, mimic_log};
-use shared::ipc::IpcMessage;
+use shared::ipc::{AuthenticodeInfo, HeuristicResults, IpcMessage, MlPrediction, SignatureMatch};
 use shared::{GalateaEvent, GalateaVerdict};
 
 mod authenticode;
@@ -14,7 +16,9 @@ pub use packers::PackerSignatureEngine;
 mod ml;
 pub use ml::MlEngine;
 
-use crate::engine::correlation::{AnalysisResult, correlate_and_broadcast};
+use crate::STATIC_RESULT_CACHE;
+use crate::cache::static_analyzer_cache::StaticResultCache;
+use crate::engine::correlation::correlate_and_broadcast;
 use crate::{
     CODE_SIGN_FORGIVENESS, CODE_SIGN_REVOKED, CODE_SIGN_UNTRUSTED, HOOK_FILE_NAME, ML_CERTENTY_MAL,
     ML_MALICIOUS,
@@ -24,6 +28,21 @@ use crate::{
     injector::inject_dll,
     utils::calc_md5,
 };
+
+pub struct AnalysisResult {
+    pub event: GalateaEvent,
+    pub threat_score: i32,
+    pub md5_hash: Option<String>,
+    pub signature_match: Option<SignatureMatch>,
+    pub authenticode: Option<AuthenticodeInfo>,
+    pub heuristics: Option<HeuristicResults>,
+    pub ml_prediction: Option<MlPrediction>,
+    pub verdict_allow: bool,
+    pub size: u64,
+    pub mod_time: SystemTime,
+    pub skip_cache: bool
+}
+
 
 pub fn analyze_event(
     event: GalateaEvent,
@@ -38,11 +57,46 @@ pub fn analyze_event(
         .to_string();
 
     if event.frozen {
+
+        // Check against cache
+        let (last_write, file_size) = match fs::metadata(&image_path) {
+            Ok(meta) => {
+                let time = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+                let size = meta.len();
+
+                (time, size)
+            }
+            Err(_) => (SystemTime::UNIX_EPOCH, 0)
+        };
+
+        if file_size > 0{
+            let cache = STATIC_RESULT_CACHE.get_or_init(|| StaticResultCache::new());
+            if let Some(cache_data) = cache.retreive_result(&image_path, last_write, file_size) {
+                let allow = cache_data.threat_score <= crate::STAT_BLOCK_THRESHOLD;
+                let result = AnalysisResult { 
+                    event, 
+                    threat_score: cache_data.threat_score, 
+                    md5_hash: cache_data.md5_hash, 
+                    signature_match: cache_data.signature_match, 
+                    authenticode: cache_data.authenticode, 
+                    heuristics: cache_data.heuristics, 
+                    ml_prediction: cache_data.ml_prediction, 
+                    verdict_allow: allow, 
+                    size: file_size, 
+                    mod_time: last_write,
+                    skip_cache: true
+                };
+                mimic_log!("Found cached result");
+                correlate_and_broadcast(result, driver, ipc_sender.as_ref());
+                return;
+            }
+        }
+
         let mut static_score = 0;
-        let mut sig_match: Option<(String, i32, String)> = None;
-        let mut auth_info: Option<(bool, bool, bool, Option<String>, i32)> = None;
-        let mut heur_info: Option<(bool, Option<String>, bool, bool, Option<String>, i32)> = None;
-        let mut ml_info: Option<(f32, i32)> = None;
+        let mut sig_match: Option<SignatureMatch> = None;
+        let mut auth_info: Option<AuthenticodeInfo> = None;
+        let mut heur_info: Option<HeuristicResults> = None;
+        let mut ml_info: Option<MlPrediction> = None;
 
         mimic_log!(
             "[SCAN] PID: {:<6} | Image: {}",
@@ -70,7 +124,11 @@ pub fn analyze_event(
                 mimic_log!("        Meta: {}", sig.meta);
                 mimic_log!("        Score: {}", sig.verdict);
 
-                sig_match = Some((sig.hash.clone(), sig.verdict, sig.meta.clone()));
+                sig_match = Some(SignatureMatch{
+                    hash: sig.hash.clone(), 
+                    verdict_score: sig.verdict, 
+                    metadata: sig.meta.clone()
+                });
 
                 if block_on_highscore(sig.verdict, &event, &driver) {
                     // Blocked - send to correlation with blocked verdict
@@ -83,6 +141,9 @@ pub fn analyze_event(
                         heuristics: None,
                         ml_prediction: None,
                         verdict_allow: false,
+                        size: file_size,
+                        mod_time: last_write,
+                        skip_cache: false
                     };
                     correlate_and_broadcast(result, driver, ipc_sender.as_ref());
                     return;
@@ -98,15 +159,15 @@ pub fn analyze_event(
             if sig.is_trusted {
                 mimic_log!("       [!] Signed and trusted: {:?}", sig.signer);
                 static_score += CODE_SIGN_FORGIVENESS;
-                auth_info = Some((true, true, false, sig.signer.clone(), CODE_SIGN_FORGIVENESS));
+                auth_info = Some(AuthenticodeInfo{is_signed:true, is_trusted:true, is_revoked:false, signer: sig.signer.clone(), score_modifier: CODE_SIGN_FORGIVENESS});
             } else if sig.is_revoked {
                 mimic_log!("       [!] Revoked Cert: {:?}", sig.signer);
                 static_score += CODE_SIGN_REVOKED;
-                auth_info = Some((true, false, true, sig.signer.clone(), CODE_SIGN_REVOKED));
+                auth_info = Some(AuthenticodeInfo{is_signed:true, is_trusted:false, is_revoked:true, signer: sig.signer.clone(), score_modifier: CODE_SIGN_REVOKED});
             } else {
                 mimic_log!("       [!] Signed and not trusted: {:?}", sig.signer);
                 static_score += CODE_SIGN_UNTRUSTED;
-                auth_info = Some((true, false, false, sig.signer.clone(), CODE_SIGN_UNTRUSTED));
+                auth_info = Some(AuthenticodeInfo{is_signed:true, is_trusted:false, is_revoked:false, signer: sig.signer.clone(), score_modifier: CODE_SIGN_UNTRUSTED});
             }
         }
         if block_on_highscore(static_score, &event, &driver) {
@@ -119,6 +180,9 @@ pub fn analyze_event(
                 heuristics: None,
                 ml_prediction: None,
                 verdict_allow: false,
+                size: file_size,
+                mod_time: last_write,
+                skip_cache: false
             };
             correlate_and_broadcast(result, driver, ipc_sender.as_ref());
             return;
@@ -133,7 +197,7 @@ pub fn analyze_event(
                 mimic_log!("       [ML] Malicious Probability: {:.4}", ml_prob);
                 if ml_prob > ML_CERTENTY_MAL as f32 {
                     static_score += ML_MALICIOUS;
-                    ml_info = Some((ml_prob, ML_MALICIOUS));
+                    ml_info = Some(MlPrediction{malicious_probability:ml_prob, score_modifier:ML_MALICIOUS});
                 }
             }
         }
@@ -158,18 +222,18 @@ pub fn analyze_event(
                 //TODO: check DB for imphash matches
             }
 
-            heur_info = Some((
-                rep.is_packed,
-                rep.packer.clone(),
-                rep.has_rwx,
-                rep.high_entropy,
-                if !rep.imphash.is_empty() {
+            heur_info = Some(HeuristicResults{
+                is_packed: rep.is_packed,
+                packer_name: rep.packer.clone(),
+                has_rwx_sections: rep.has_rwx,
+                high_entropy: rep.high_entropy,
+                imphash: if !rep.imphash.is_empty() {
                     Some(rep.imphash.clone())
                 } else {
                     None
                 },
-                rep.score_mod,
-            ));
+                score_modifier: rep.score_mod,
+        });
 
             if block_on_highscore(static_score, &event, &driver) {
                 let result = AnalysisResult {
@@ -181,6 +245,9 @@ pub fn analyze_event(
                     heuristics: heur_info,
                     ml_prediction: ml_info,
                     verdict_allow: false,
+                    size: file_size,
+                    mod_time: last_write,
+                    skip_cache: false
                 };
                 correlate_and_broadcast(result, driver, ipc_sender.as_ref());
                 return;
@@ -207,6 +274,9 @@ pub fn analyze_event(
             heuristics: heur_info,
             ml_prediction: ml_info,
             verdict_allow: true,
+            size: file_size,
+            mod_time: last_write,
+            skip_cache: false
         };
         correlate_and_broadcast(result, driver, ipc_sender.as_ref());
     } else {
