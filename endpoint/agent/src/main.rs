@@ -2,7 +2,8 @@ use std::{
     env,
     path::PathBuf,
     sync::{
-        Arc, OnceLock, atomic::{AtomicUsize, Ordering}
+        Arc, OnceLock,
+        atomic::{AtomicUsize, Ordering},
     },
 };
 
@@ -23,27 +24,36 @@ use mimic_core::{error, mimic_bail, mimic_error, mimic_log, mimic_success, privi
 use shared::{GalateaEvent, IOCTL_GET_EVENT};
 
 mod analyzer;
+mod cache;
 mod config;
 mod db;
 mod driver;
 mod engine;
 mod injector;
-mod utils;
 mod ipc;
-mod cache;
-use crate::{cache::static_analyzer_cache::StaticResultCache, ipc::ipc_server::IpcServer};
+mod logger;
+mod probes;
+mod utils;
 use crate::{
     analyzer::{MlEngine, PackerSignatureEngine},
     driver::DriverHandle,
 };
+use crate::{cache::static_analyzer_cache::StaticResultCache, ipc::ipc_server::IpcServer};
 pub use config::*;
-
-
 
 static GLOBAL_LISTENER_HANDLE: AtomicUsize = AtomicUsize::new(0);
 static STATIC_RESULT_CACHE: OnceLock<StaticResultCache> = OnceLock::new();
 
 fn main() -> error::Result<()> {
+    // Setup file logging
+    let current_exe = env::current_exe().map_err(|e| e.to_string())?;
+    let current_dir = current_exe.parent().unwrap();
+    let log_path = current_dir.join(LOG_FILE);
+
+    if let Ok(file_logger) = logger::FileLogger::new(log_path) {
+        mimic_core::logger::set_logger(Box::new(file_logger));
+    }
+
     mimic_log!("Initializing Galatea Agent...");
 
     if cfg!(debug_assertions) {

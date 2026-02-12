@@ -1,14 +1,10 @@
 use chrono::{DateTime, Utc};
-use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
-use std::time::SystemTime;
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::System::Threading::{
     GetProcessTimes, OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
     QueryFullProcessImageNameW,
 };
 use windows::core::PWSTR;
-
 
 #[repr(C)]
 struct ProcessBasicInformation {
@@ -30,51 +26,16 @@ unsafe extern "system" {
     ) -> i32;
 }
 
-static PROCESS_CACHE: OnceLock<Mutex<HashMap<u64, CachedProcessInfo>>> = OnceLock::new();
-
 #[derive(Clone, Debug)]
-pub struct CachedProcessInfo {
+pub struct ProcessInfo {
     pub name: String,
     pub path: String,
     pub parent_pid: Option<u64>,
     pub command_line: Option<String>,
     pub creation_time: Option<DateTime<Utc>>,
-    pub cached_at: SystemTime,
 }
 
-const CACHE_DURATION_SECS: u64 = 60; 
-
-
-pub fn get_process_info(pid: u64) -> Option<CachedProcessInfo> {
-    let cache = PROCESS_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-
-    // Check cache first
-    {
-        let cache_guard = cache.lock().ok()?;
-        if let Some(cached) = cache_guard.get(&pid) {
-            if let Ok(elapsed) = cached.cached_at.elapsed() {
-                if elapsed.as_secs() < CACHE_DURATION_SECS {
-                    return Some(cached.clone());
-                }
-            }
-        }
-    }
-
-    let info = query_process_info(pid)?;
-
-
-    if let Ok(mut cache_guard) = cache.lock() {
-        cache_guard.insert(pid, info.clone());
-
-        if cache_guard.len() > 1000 {
-            cache_guard.clear();
-        }
-    }
-
-    Some(info)
-}
-
-fn query_process_info(pid: u64) -> Option<CachedProcessInfo> {
+pub fn get_process_info(pid: u64) -> Option<ProcessInfo> {
     let handle = unsafe {
         OpenProcess(
             PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
@@ -84,15 +45,13 @@ fn query_process_info(pid: u64) -> Option<CachedProcessInfo> {
         .ok()?
     };
 
-    let mut info = CachedProcessInfo {
+    let mut info = ProcessInfo {
         name: String::new(),
         path: String::new(),
         parent_pid: None,
         command_line: None,
         creation_time: None,
-        cached_at: SystemTime::now(),
     };
-
 
     if let Some(path) = get_process_image_path(handle) {
         info.path = path.clone();

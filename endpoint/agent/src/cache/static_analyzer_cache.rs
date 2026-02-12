@@ -1,56 +1,94 @@
-use std::{collections::HashMap, sync::RwLock, time::SystemTime};
+use std::time::SystemTime;
 
-use mimic_core::mimic_error;
+use mimic_core::mimic_log;
 use shared::ipc::DetectionDetails;
 
+use crate::probes::file_identity::get_file_index;
 
-struct CacheItemData{
+#[derive(Clone)]
+struct CacheItemData {
     last_mod_time: SystemTime,
     file_size: u64,
-    details: DetectionDetails
+    file_index: Option<u64>,
+    details: DetectionDetails,
 }
 
-pub struct StaticResultCache{
-    cache: RwLock<HashMap<String, CacheItemData>>
+pub struct StaticResultCache {
+    cache: moka::sync::Cache<String, CacheItemData>,
 }
 
 impl StaticResultCache {
     pub fn new() -> Self {
         Self {
-            cache: RwLock::new(HashMap::with_capacity(1000))
+            cache: moka::sync::Cache::builder().max_capacity(10_000).build(),
         }
     }
 
-    pub fn cache_result(&self, path: String, time: SystemTime, size: u64, details: DetectionDetails){
-        let mut map = match self.cache.write() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                mimic_error!("Static Analysis Cache lock was poisoned. Forcebly clearing the cache to self-heal");
-                let mut guard = poisoned.into_inner();
-                guard.clear();
-                guard
-            }
-        };
-        map.insert(path, CacheItemData {
-            last_mod_time: time,
-            file_size: size,
-            details: details
-        });
+    /// Canonicalizes a raw path to a consistent cache key.
+    fn canonicalize_key(raw_path: &str) -> String {
+        match dunce::canonicalize(raw_path) {
+            Ok(path) => path.to_string_lossy().to_string(),
+            Err(_) => raw_path.to_string(),
+        }
     }
 
-    pub fn retreive_result(&self, path: &str, time: SystemTime, size: u64) -> Option<DetectionDetails>{
-        let map = match self.cache.read() {
-            Ok(guard) => guard,
-            Err(_) => {
-                mimic_error!("[WARN] Cache read lock poisoned! Treating as miss.");
+    /// Inserts or updates a cached analysis result for the given file path.
+    pub fn cache_result(
+        &self,
+        raw_path: &str,
+        time: SystemTime,
+        size: u64,
+        details: DetectionDetails,
+    ) {
+        let key = Self::canonicalize_key(raw_path);
+        let file_index = get_file_index(&key);
+
+        self.cache.insert(
+            key,
+            CacheItemData {
+                last_mod_time: time,
+                file_size: size,
+                file_index,
+                details,
+            },
+        );
+    }
+
+    /// Retrieves a cached result if the file metadata still matches.
+    /// Returns `None` on cache miss or if the file has changed.
+    pub fn retrieve_result(
+        &self,
+        raw_path: &str,
+        time: SystemTime,
+        size: u64,
+    ) -> Option<DetectionDetails> {
+        let key = Self::canonicalize_key(raw_path);
+        let candidate = self.cache.get(&key)?;
+
+        // Validate size and modification time
+        if candidate.file_size != size || candidate.last_mod_time != time {
+            return None;
+        }
+
+        // Validate file index (anti-timestomping)
+        if let Some(cached_index) = candidate.file_index {
+            let current_index = get_file_index(&key);
+            if current_index != Some(cached_index) {
+                mimic_log!(
+                    "[CACHE] File index mismatch for '{}'. Possible file replacement detected. Invalidating.",
+                    raw_path
+                );
+                self.cache.invalidate(&key);
                 return None;
             }
-        };
-        if let Some(candidate) = map.get(path) {
-            if candidate.file_size == size && candidate.last_mod_time == time {
-                return Some(candidate.details.clone());
-            }
-        }        
-        return None;
+        }
+
+        Some(candidate.details.clone())
+    }
+
+    /// Removes a specific entry from the cache (e.g., after a tuning/allowlist change).
+    pub fn invalidate_result(&self, raw_path: &str) {
+        let key = Self::canonicalize_key(raw_path);
+        self.cache.invalidate(&key);
     }
 }

@@ -40,9 +40,8 @@ pub struct AnalysisResult {
     pub verdict_allow: bool,
     pub size: u64,
     pub mod_time: SystemTime,
-    pub skip_cache: bool
+    pub skip_cache: bool,
 }
-
 
 pub fn analyze_event(
     event: GalateaEvent,
@@ -52,12 +51,15 @@ pub fn analyze_event(
     ml_engine: Arc<MlEngine>,
     ipc_sender: Option<Sender<IpcMessage>>,
 ) {
-    let image_path = String::from_utf16_lossy(&event.image_path)
+    let raw_path = String::from_utf16_lossy(&event.image_path)
         .trim_matches(char::from(0))
         .to_string();
+    let image_path = match dunce::canonicalize(&raw_path) {
+        Ok(path) => path.to_string_lossy().to_string(),
+        Err(_) => raw_path,
+    };
 
     if event.frozen {
-
         // Check against cache
         let (last_write, file_size) = match fs::metadata(&image_path) {
             Ok(meta) => {
@@ -66,25 +68,25 @@ pub fn analyze_event(
 
                 (time, size)
             }
-            Err(_) => (SystemTime::UNIX_EPOCH, 0)
+            Err(_) => (SystemTime::UNIX_EPOCH, 0),
         };
 
-        if file_size > 0{
+        if file_size > 0 {
             let cache = STATIC_RESULT_CACHE.get_or_init(|| StaticResultCache::new());
-            if let Some(cache_data) = cache.retreive_result(&image_path, last_write, file_size) {
+            if let Some(cache_data) = cache.retrieve_result(&image_path, last_write, file_size) {
                 let allow = cache_data.threat_score <= crate::STAT_BLOCK_THRESHOLD;
-                let result = AnalysisResult { 
-                    event, 
-                    threat_score: cache_data.threat_score, 
-                    md5_hash: cache_data.md5_hash, 
-                    signature_match: cache_data.signature_match, 
-                    authenticode: cache_data.authenticode, 
-                    heuristics: cache_data.heuristics, 
-                    ml_prediction: cache_data.ml_prediction, 
-                    verdict_allow: allow, 
-                    size: file_size, 
+                let result = AnalysisResult {
+                    event,
+                    threat_score: cache_data.threat_score,
+                    md5_hash: cache_data.md5_hash,
+                    signature_match: cache_data.signature_match,
+                    authenticode: cache_data.authenticode,
+                    heuristics: cache_data.heuristics,
+                    ml_prediction: cache_data.ml_prediction,
+                    verdict_allow: allow,
+                    size: file_size,
                     mod_time: last_write,
-                    skip_cache: true
+                    skip_cache: true,
                 };
                 mimic_log!("Found cached result");
                 correlate_and_broadcast(result, driver, ipc_sender.as_ref());
@@ -124,10 +126,10 @@ pub fn analyze_event(
                 mimic_log!("        Meta: {}", sig.meta);
                 mimic_log!("        Score: {}", sig.verdict);
 
-                sig_match = Some(SignatureMatch{
-                    hash: sig.hash.clone(), 
-                    verdict_score: sig.verdict, 
-                    metadata: sig.meta.clone()
+                sig_match = Some(SignatureMatch {
+                    hash: sig.hash.clone(),
+                    verdict_score: sig.verdict,
+                    metadata: sig.meta.clone(),
                 });
 
                 if block_on_highscore(sig.verdict, &event, &driver) {
@@ -143,7 +145,7 @@ pub fn analyze_event(
                         verdict_allow: false,
                         size: file_size,
                         mod_time: last_write,
-                        skip_cache: false
+                        skip_cache: false,
                     };
                     correlate_and_broadcast(result, driver, ipc_sender.as_ref());
                     return;
@@ -159,15 +161,33 @@ pub fn analyze_event(
             if sig.is_trusted {
                 mimic_log!("       [!] Signed and trusted: {:?}", sig.signer);
                 static_score += CODE_SIGN_FORGIVENESS;
-                auth_info = Some(AuthenticodeInfo{is_signed:true, is_trusted:true, is_revoked:false, signer: sig.signer.clone(), score_modifier: CODE_SIGN_FORGIVENESS});
+                auth_info = Some(AuthenticodeInfo {
+                    is_signed: true,
+                    is_trusted: true,
+                    is_revoked: false,
+                    signer: sig.signer.clone(),
+                    score_modifier: CODE_SIGN_FORGIVENESS,
+                });
             } else if sig.is_revoked {
                 mimic_log!("       [!] Revoked Cert: {:?}", sig.signer);
                 static_score += CODE_SIGN_REVOKED;
-                auth_info = Some(AuthenticodeInfo{is_signed:true, is_trusted:false, is_revoked:true, signer: sig.signer.clone(), score_modifier: CODE_SIGN_REVOKED});
+                auth_info = Some(AuthenticodeInfo {
+                    is_signed: true,
+                    is_trusted: false,
+                    is_revoked: true,
+                    signer: sig.signer.clone(),
+                    score_modifier: CODE_SIGN_REVOKED,
+                });
             } else {
                 mimic_log!("       [!] Signed and not trusted: {:?}", sig.signer);
                 static_score += CODE_SIGN_UNTRUSTED;
-                auth_info = Some(AuthenticodeInfo{is_signed:true, is_trusted:false, is_revoked:false, signer: sig.signer.clone(), score_modifier: CODE_SIGN_UNTRUSTED});
+                auth_info = Some(AuthenticodeInfo {
+                    is_signed: true,
+                    is_trusted: false,
+                    is_revoked: false,
+                    signer: sig.signer.clone(),
+                    score_modifier: CODE_SIGN_UNTRUSTED,
+                });
             }
         }
         if block_on_highscore(static_score, &event, &driver) {
@@ -182,7 +202,7 @@ pub fn analyze_event(
                 verdict_allow: false,
                 size: file_size,
                 mod_time: last_write,
-                skip_cache: false
+                skip_cache: false,
             };
             correlate_and_broadcast(result, driver, ipc_sender.as_ref());
             return;
@@ -197,7 +217,10 @@ pub fn analyze_event(
                 mimic_log!("       [ML] Malicious Probability: {:.4}", ml_prob);
                 if ml_prob > ML_CERTENTY_MAL as f32 {
                     static_score += ML_MALICIOUS;
-                    ml_info = Some(MlPrediction{malicious_probability:ml_prob, score_modifier:ML_MALICIOUS});
+                    ml_info = Some(MlPrediction {
+                        malicious_probability: ml_prob,
+                        score_modifier: ML_MALICIOUS,
+                    });
                 }
             }
         }
@@ -222,7 +245,7 @@ pub fn analyze_event(
                 //TODO: check DB for imphash matches
             }
 
-            heur_info = Some(HeuristicResults{
+            heur_info = Some(HeuristicResults {
                 is_packed: rep.is_packed,
                 packer_name: rep.packer.clone(),
                 has_rwx_sections: rep.has_rwx,
@@ -233,7 +256,7 @@ pub fn analyze_event(
                     None
                 },
                 score_modifier: rep.score_mod,
-        });
+            });
 
             if block_on_highscore(static_score, &event, &driver) {
                 let result = AnalysisResult {
@@ -247,7 +270,7 @@ pub fn analyze_event(
                     verdict_allow: false,
                     size: file_size,
                     mod_time: last_write,
-                    skip_cache: false
+                    skip_cache: false,
                 };
                 correlate_and_broadcast(result, driver, ipc_sender.as_ref());
                 return;
@@ -276,7 +299,7 @@ pub fn analyze_event(
             verdict_allow: true,
             size: file_size,
             mod_time: last_write,
-            skip_cache: false
+            skip_cache: false,
         };
         correlate_and_broadcast(result, driver, ipc_sender.as_ref());
     } else {

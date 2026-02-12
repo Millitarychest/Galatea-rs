@@ -28,3 +28,6 @@ pub const CODE_SIGN_UNTRUSTED: i32 = 5;
 pub const CODE_SIGN_REVOKED: i32 = 100;
 
 pub const ML_MALICIOUS: i32 = 40;
+
+// Log Targets
+pub const LOG_FILE: &str = "galatea.log";

@@ -1,21 +1,16 @@
 use chrono::Utc;
 use mimic_core::mimic_log;
-use shared::ipc::{
-    DetectionDetails, DetectionEvent, IpcMessage, ProcessInfo, Verdict,
-};
 use shared::GalateaVerdict;
+use shared::ipc::{DetectionDetails, DetectionEvent, IpcMessage, ProcessInfo, Verdict};
 use std::sync::mpsc::Sender;
 use uuid::Uuid;
 
-use super::process_info;
+use crate::probes::process_info;
 use crate::STATIC_RESULT_CACHE;
 use crate::analyzer::AnalysisResult;
 use crate::cache::static_analyzer_cache::StaticResultCache;
 use crate::driver::DriverHandle;
 use crate::driver::io::send_verdict;
-
-
-
 
 pub fn correlate_and_broadcast(
     result: AnalysisResult,
@@ -26,7 +21,6 @@ pub fn correlate_and_broadcast(
         .trim_matches(char::from(0))
         .to_string();
 
-    
     let process_info_data = process_info::get_process_info(result.event.process_id);
 
     let process_info = ProcessInfo {
@@ -47,15 +41,14 @@ pub fn correlate_and_broadcast(
     };
 
     // Build detection details
-    let detection =
-        DetectionDetails {
-            threat_score: result.threat_score,
-            md5_hash: result.md5_hash,
-            signature_match: result.signature_match,
-            authenticode: result.authenticode,
-            heuristics: result.heuristics,
-            ml_prediction: result.ml_prediction,
-        };
+    let detection = DetectionDetails {
+        threat_score: result.threat_score,
+        md5_hash: result.md5_hash,
+        signature_match: result.signature_match,
+        authenticode: result.authenticode,
+        heuristics: result.heuristics,
+        ml_prediction: result.ml_prediction,
+    };
 
     let verdict = if result.verdict_allow {
         Verdict::Allowed
@@ -63,12 +56,9 @@ pub fn correlate_and_broadcast(
         Verdict::Blocked
     };
 
-    if result.size > 0 && !result.skip_cache{
+    if result.size > 0 && !result.skip_cache {
         let cache = STATIC_RESULT_CACHE.get_or_init(|| StaticResultCache::new());
-        let image_path = String::from_utf16_lossy(&result.event.image_path)
-        .trim_matches(char::from(0))
-        .to_string();
-        cache.cache_result(image_path, result.mod_time, result.size, detection.clone());
+        cache.cache_result(&image_path, result.mod_time, result.size, detection.clone());
     }
 
     let detection_event = DetectionEvent {
@@ -86,7 +76,6 @@ pub fn correlate_and_broadcast(
         }
     }
 
-    
     let driver_verdict = GalateaVerdict {
         process_id: result.event.process_id,
         request_id: result.event.request_id,
