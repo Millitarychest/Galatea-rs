@@ -17,22 +17,7 @@ use windows::Win32::System::Pipes::{
 };
 use windows::core::PWSTR;
 
-// Wrapper to make HANDLE Send-safe for thread communication
-#[derive(Debug, Clone, Copy)]
-struct SendHandle(HANDLE);
-unsafe impl Send for SendHandle {}
 
-impl From<HANDLE> for SendHandle {
-    fn from(h: HANDLE) -> Self {
-        SendHandle(h)
-    }
-}
-
-impl From<SendHandle> for HANDLE {
-    fn from(sh: SendHandle) -> Self {
-        sh.0
-    }
-}
 
 #[allow(dead_code)]
 pub struct IpcServer {
@@ -93,7 +78,7 @@ fn run_ipc_server(receiver: Receiver<IpcMessage>) {
     }
 }
 
-fn accept_clients_loop(client_sender: Sender<SendHandle>) {
+fn accept_clients_loop(client_sender: Sender<super::SendHandle>) {
     loop {
         match create_pipe_instance() {
             Some(pipe_handle) => {

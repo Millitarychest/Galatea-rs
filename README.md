@@ -21,7 +21,7 @@ For a list of currently implemented features and what is planned check [``docs\r
 > This is an experimental project written by an idiot
 > Given that the EDR requires elevate permissions as well as a kernel driver, it can really screw up your PC or at the very least cause it to BSOD
 
-Build the project and setup your VM via the instructions in [``docs\SETUP.md``](docs/setup.md)
+Build the project and setup your VM via the instructions in [``docs\endpoint\SETUP.md``](docs/endpoint/setup.md)
  
 Follow the steps below to run the EDR. (Admin rights are required)
 1. Start the agent by running ``agent.exe``. This should automatically setup and start the driver aswell

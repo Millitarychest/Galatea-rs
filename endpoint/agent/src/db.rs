@@ -30,7 +30,7 @@ pub fn init_db_pool(db_path: &str) -> error::Result<DbPool>{
 }
 
 #[derive(PartialEq)]
-pub enum IOCTYPE {
+pub enum IocType {
     Md5Hash,
 
 
@@ -39,7 +39,7 @@ pub enum IOCTYPE {
 
 pub struct SignatureRecord {
     pub hash: String,
-    pub ioc_type: IOCTYPE,
+    pub ioc_type: IocType,
     pub verdict: i32, //Score between 0-100 (100 Known bad)
     pub meta: String,
 }
@@ -64,8 +64,8 @@ pub fn check_signature(pool: &DbPool, hash: &str)-> Option<SignatureRecord>{
     let result = stmt.query_row([hash], |row|{
         let raw_ioc: i32 = row.get(1)?; 
         let ioc = match raw_ioc {
-            0 => IOCTYPE::Md5Hash,
-            _ => IOCTYPE::Unknown
+            0 => IocType::Md5Hash,
+            _ => IocType::Unknown
         };
         Ok(SignatureRecord {
             hash: row.get(0)?,

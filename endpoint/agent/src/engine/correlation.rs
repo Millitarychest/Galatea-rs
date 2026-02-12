@@ -5,16 +5,16 @@ use shared::ipc::{DetectionDetails, DetectionEvent, IpcMessage, ProcessInfo, Ver
 use std::sync::mpsc::Sender;
 use uuid::Uuid;
 
+use crate::ipc::SendHandle;
 use crate::probes::process_info;
 use crate::STATIC_RESULT_CACHE;
 use crate::analyzer::AnalysisResult;
 use crate::cache::static_analyzer_cache::StaticResultCache;
-use crate::driver::DriverHandle;
 use crate::driver::io::send_verdict;
 
 pub fn correlate_and_broadcast(
     result: AnalysisResult,
-    driver: DriverHandle,
+    driver: SendHandle,
     ipc_sender: Option<&Sender<IpcMessage>>,
 ) {
     let image_path = String::from_utf16_lossy(&result.event.image_path)
@@ -81,5 +81,5 @@ pub fn correlate_and_broadcast(
         request_id: result.event.request_id,
         allow: result.verdict_allow,
     };
-    send_verdict(driver.0, driver_verdict);
+    send_verdict(driver.into(), driver_verdict);
 }

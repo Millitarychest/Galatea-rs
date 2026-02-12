@@ -1,5 +1,4 @@
 use std::{
-    env,
     path::PathBuf,
     sync::{
         Arc, OnceLock,
@@ -35,8 +34,7 @@ mod logger;
 mod probes;
 mod utils;
 use crate::{
-    analyzer::{MlEngine, PackerSignatureEngine},
-    driver::DriverHandle,
+    analyzer::{MlEngine, PackerSignatureEngine}, ipc::SendHandle,
 };
 use crate::{cache::static_analyzer_cache::StaticResultCache, ipc::ipc_server::IpcServer};
 pub use config::*;
@@ -46,8 +44,8 @@ static STATIC_RESULT_CACHE: OnceLock<StaticResultCache> = OnceLock::new();
 
 fn main() -> error::Result<()> {
     // Setup file logging
-    let current_exe = env::current_exe().map_err(|e| e.to_string())?;
-    let current_dir = current_exe.parent().unwrap();
+    
+    let current_dir = utils::exe_directory();
     let log_path = current_dir.join(LOG_FILE);
 
     if let Ok(file_logger) = logger::FileLogger::new(log_path) {
@@ -75,9 +73,6 @@ fn main() -> error::Result<()> {
     init_driver()?;
 
     // Setup Database Connection
-    let current_exe = env::current_exe().map_err(|e| e.to_string())?;
-    let current_dir = current_exe.parent().unwrap();
-
     let db_path = current_dir.join(DB_FILE_NAME);
     let db_pool = db::init_db_pool(db_path.to_str().unwrap())?;
     mimic_success!("Knowledge Base (Signatures) Loaded.");
@@ -112,7 +107,7 @@ fn main() -> error::Result<()> {
         mimic_error!("model.onnx not found! ML disabled.");
         None
     };
-    let ml_engine = Arc::new(ml_engine.expect("Critical: ML Model missing"));
+    let ml_engine = Arc::new(ml_engine);
 
     // Setup worker threads
     let n_workers = 16; // Adjust
@@ -178,7 +173,7 @@ fn main() -> error::Result<()> {
         mimic_bail!("Registration Handshake Failed");
     }
 
-    let safe_handle = DriverHandle(control_handle);
+    let safe_handle = SendHandle::from(control_handle);
 
     // Initialize IPC server
     let ipc_sender = IpcServer::start();
@@ -277,8 +272,7 @@ fn init_driver() -> error::Result<()> {
 }
 
 fn resolve_driver_path() -> Result<PathBuf, String> {
-    let current_exe = env::current_exe().map_err(|e| e.to_string())?;
-    let current_dir = current_exe.parent().unwrap();
+    let current_dir = utils::exe_directory();
 
     let prod_path = current_dir.join(DRIVER_FILE_NAME);
     if prod_path.exists() {
