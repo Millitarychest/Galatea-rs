@@ -185,7 +185,9 @@ fn main() -> error::Result<()> {
 
     // register
 
-    let _ = network::server::register_with_server(config::SERVER_URI);
+    if let Err(e) = network::server::register_with_server(config::SERVER_URI) {
+        mimic_error!("Failed to register with server: {}", e);
+    }
 
     loop {
         let mut event: GalateaEvent = unsafe { std::mem::zeroed() };

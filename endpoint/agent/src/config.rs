@@ -2,7 +2,7 @@
 // should eventually be moved to external file with easier mod
 
 // SERVER INFO
-pub const SERVER_URI: &str = "localhost";
+pub const SERVER_URI: &str = "http://localhost:80";
 pub const AGENT_PSK: &str = "galatea_secret";
 
 // NAMES

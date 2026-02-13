@@ -4,6 +4,7 @@ use axum::{
     Router,
     routing::{get, post},
 };
+use tokio::time::interval;
 use tower_http::services::ServeDir;
 
 use crate::{routes::{agent, api, dashboard, events}, state::AppContext};
@@ -12,6 +13,27 @@ mod config;
 mod state;
 mod routes;
 mod db;
+mod utils;
+
+/// Background task to mark stale agents as offline
+async fn stale_agent_monitor() {
+    let mut ticker = interval(config::HEARTBEAT_INTERVAL);
+    
+    loop {
+        ticker.tick().await;
+        
+        let context = AppContext::global();
+        match db::mark_stale_agents_offline(&context.db_pool, config::AGENT_OFFLINE_TIMEOUT) {
+            Ok(count) if count > 0 => {
+                mimic_core::mimic_log!("Marked {} agent(s) as offline (no heartbeat)", count);
+            }
+            Ok(_) => {} // No agents to mark offline
+            Err(e) => {
+                mimic_core::mimic_log!("Error marking stale agents offline: {}", e);
+            }
+        }
+    }
+}
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -25,7 +47,11 @@ struct Args {
 
 
 fn static_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("web/static")
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")))
+        .join("web/static")
 }
 
 #[tokio::main]
@@ -40,6 +66,9 @@ async fn main() {
     context.set_global().expect("Failed to set global AppContext");
 
     let socket_addr = SocketAddr::from((config::SERVER_INTERFACE, port));
+
+
+    tokio::spawn(stale_agent_monitor());
 
     let app = Router::new()
         // Web Routes

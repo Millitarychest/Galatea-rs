@@ -2,7 +2,7 @@ use axum::{Json, extract::Path, http::StatusCode};
 use serde_json::{Value, json};
 
 use crate::{config::AGENT_PSK, db, state::AppContext};
-use api_definition::{AgentAuthentication, AgentRegistration};
+use api_definition::{AgentAuthentication, AgentHeartbeat, AgentRegistration};
 
 fn validate_psk(auth: &AgentAuthentication) -> bool {
     auth.psk == AGENT_PSK
@@ -34,17 +34,55 @@ pub async fn handle_register(Json(registration): Json<AgentRegistration>) -> (St
 
 /// POST /api/v1/agents/{id}/heartbeat
 pub async fn handle_heartbeat(
-    Path(_id): Path<String>,
-    Json(_body): Json<Value>,
+    Path(id): Path<String>,
+    Json(body): Json<AgentHeartbeat>,
 ) -> (StatusCode, Json<Value>) {
-    // TODO: Update last_heartbeat_at in database
-    // TODO: Query pending commands for this agent
+    if !validate_psk(&body.auth) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "error": "Invalid PSK" })),
+        );
+    }
+    
+    let agent_id = body.uuid.to_string();
+
+    if id != agent_id{
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "error": "Invalid Agent ID" })),
+        );
+    }
+
+    if let Err(e) = db::update_heartbeat(&AppContext::global().db_pool, &agent_id) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Failed to update heartbeat: {}", e) })),
+        );
+    }
+
+    let commands = match db::get_pending_commands(&AppContext::global().db_pool, &agent_id) {
+        Ok(cmds) => cmds,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Failed to get pending commands: {}", e) })),
+            );
+        }
+    };
+
+    for cmd in &commands {
+        let _ = db::mark_command_delivered(&AppContext::global().db_pool, &cmd.command_id);
+    }
 
     (
         StatusCode::OK,
         Json(json!({
             "server_time": chrono::Utc::now().to_rfc3339(),
-            "pending_commands": []
+            "pending_commands": commands.iter().map(|c| json!({
+                "command_id": c.command_id,
+                "command_type": c.command_type,
+                "payload": c.payload_json.as_ref().map(|s| serde_json::from_str::<Value>(s).ok()).flatten()
+            })).collect::<Vec<_>>()
         })),
     )
 }

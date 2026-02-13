@@ -1,8 +1,6 @@
 use axum::response::Html;
 
-/// Wraps page content in the shared layout shell (sidebar + header).
-/// `title` is the page title, `active` is the sidebar nav item to highlight,
-/// `content` is the inner HTML for the main area.
+
 pub fn page(title: &str, active: &str, content: &str) -> Html<String> {
     Html(format!(
         r#"<!DOCTYPE html>

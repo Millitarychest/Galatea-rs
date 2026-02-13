@@ -1,7 +1,7 @@
 <div class="breadcrumb">
     <a href="/">Fleet</a>
     <span class="separator">›</span>
-    <span>Agent {id}</span>
+    <span>Agent {short_id}</span>
 </div>
 
 <div class="page-header">
@@ -12,32 +12,40 @@
 <div class="agent-info-grid">
     <div class="info-item">
         <div class="label">Agent ID</div>
-        <div class="value">{id}</div>
+        <div class="value mono">{id}</div>
     </div>
     <div class="info-item">
         <div class="label">Hostname</div>
-        <div class="value">—</div>
+        <div class="value">{hostname}</div>
     </div>
     <div class="info-item">
         <div class="label">Status</div>
         <div class="value">
             <span class="status">
-                <span class="status-dot offline"></span>
-                Unknown
+                <span class="status-dot {status_class}"></span>
+                {status}
             </span>
         </div>
     </div>
     <div class="info-item">
         <div class="label">OS Version</div>
-        <div class="value">—</div>
+        <div class="value">{os_version}</div>
     </div>
     <div class="info-item">
         <div class="label">Agent Version</div>
-        <div class="value">—</div>
+        <div class="value">{agent_version}</div>
     </div>
     <div class="info-item">
         <div class="label">IP Address</div>
-        <div class="value">—</div>
+        <div class="value mono">{ip_address}</div>
+    </div>
+    <div class="info-item">
+        <div class="label">Registered At</div>
+        <div class="value">{registered_at}</div>
+    </div>
+    <div class="info-item">
+        <div class="label">Last Heartbeat</div>
+        <div class="value">{last_heartbeat}</div>
     </div>
 </div>
 
