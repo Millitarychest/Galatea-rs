@@ -1,0 +1,52 @@
+<div class="page-header">
+    <h2>Fleet Overview</h2>
+    <p>Monitor all connected Galatea agents</p>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="label">Total Agents</div>
+        <div class="value blue">0</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Online</div>
+        <div class="value green">0</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Stale</div>
+        <div class="value yellow">0</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Offline</div>
+        <div class="value red">0</div>
+    </div>
+</div>
+
+<div class="table-container">
+    <div class="table-header">
+        <h3>Agents</h3>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Status</th>
+                <th>Hostname</th>
+                <th>Agent ID</th>
+                <th>OS</th>
+                <th>Version</th>
+                <th>IP Address</th>
+                <th>Last Heartbeat</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td colspan="7">
+                    <div class="empty-state">
+                        <div class="icon">📡</div>
+                        <p>No agents registered yet. Deploy an agent to get started.</p>
+                    </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+</div>

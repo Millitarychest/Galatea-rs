@@ -1,0 +1,69 @@
+<div class="breadcrumb">
+    <a href="/">Fleet</a>
+    <span class="separator">›</span>
+    <span>Agent {id}</span>
+</div>
+
+<div class="page-header">
+    <h2>Agent Detail</h2>
+    <p>Viewing agent <span class="mono">{id}</span></p>
+</div>
+
+<div class="agent-info-grid">
+    <div class="info-item">
+        <div class="label">Agent ID</div>
+        <div class="value">{id}</div>
+    </div>
+    <div class="info-item">
+        <div class="label">Hostname</div>
+        <div class="value">—</div>
+    </div>
+    <div class="info-item">
+        <div class="label">Status</div>
+        <div class="value">
+            <span class="status">
+                <span class="status-dot offline"></span>
+                Unknown
+            </span>
+        </div>
+    </div>
+    <div class="info-item">
+        <div class="label">OS Version</div>
+        <div class="value">—</div>
+    </div>
+    <div class="info-item">
+        <div class="label">Agent Version</div>
+        <div class="value">—</div>
+    </div>
+    <div class="info-item">
+        <div class="label">IP Address</div>
+        <div class="value">—</div>
+    </div>
+</div>
+
+<div class="table-container">
+    <div class="table-header">
+        <h3>Event Timeline</h3>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Timestamp</th>
+                <th>Process</th>
+                <th>PID</th>
+                <th>Threat Score</th>
+                <th>Verdict</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td colspan="5">
+                    <div class="empty-state">
+                        <div class="icon">📋</div>
+                        <p>No events for this agent yet.</p>
+                    </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+</div>

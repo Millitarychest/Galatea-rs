@@ -1,0 +1,47 @@
+<div class="page-header">
+    <h2>Event Feed</h2>
+    <p>Detection events across all agents</p>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="label">Total Events</div>
+        <div class="value blue">0</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Blocked</div>
+        <div class="value red">0</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Allowed</div>
+        <div class="value green">0</div>
+    </div>
+</div>
+
+<div class="table-container">
+    <div class="table-header">
+        <h3>Recent Events</h3>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Timestamp</th>
+                <th>Agent</th>
+                <th>Process</th>
+                <th>PID</th>
+                <th>Threat Score</th>
+                <th>Verdict</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td colspan="6">
+                    <div class="empty-state">
+                        <div class="icon">⚡</div>
+                        <p>No events recorded yet. Events will appear here once agents report telemetry.</p>
+                    </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+</div>

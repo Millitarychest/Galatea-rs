@@ -242,3 +242,7 @@ pyrightconfig.json
 
 
 .vscode/settings.json
+server/server/static/cert.pem
+server/server/static/key.pem
+static/assets/server/galatea_server.db
+.gitignore

@@ -6,12 +6,14 @@ $ErrorActionPreference = "Stop"
 
 # --- CONFIGURATION ---
 $DriverPath = "endpoint\driver"
-$DistDir    = "target\dist"
+$DistEndpointDir = "target\dist\endpoint"
+$DistServerDir = "target\dist\server"
 
 $DriverName = "driver"
 $AgentName = "agent.exe"
 $HookDllName = "hook.dll"
 $GuiName = "client.exe"
+$ServerName = "server.exe"
 
 # Set build paths and flags based on mode
 if ($Release) {
@@ -28,7 +30,7 @@ if ($Release) {
     $GeneralTargetSourceDir = "target\debug"
 }
 
-$AssetDir = "static\assets\*"
+$AssetDir = "static\assets\endpoint\*"
 $ModelPath = "models"
 $ModelName = "model.onnx"
 $ModelFName = "features.txt"
@@ -52,13 +54,13 @@ Pop-Location
 Write-Host "[>>] Moving and renaming artifact..."
 $DllPath = "$DriverTargetSourceDir\driver_package\*"
 
-if (!(Test-Path $DistDir)) {
-    New-Item -ItemType Directory -Force -Path $DistDir | Out-Null
+if (!(Test-Path $DistEndpointDir)) {
+    New-Item -ItemType Directory -Force -Path $DistEndpointDir | Out-Null
 }
 
 if (Test-Path $DllPath) {
-    Copy-Item -Path $DllPath -Destination $DistDir -Force -Recurse
-    Write-Host "[+] Driver built at: $DistDir" -ForegroundColor Green
+    Copy-Item -Path $DllPath -Destination $DistEndpointDir -Force -Recurse
+    Write-Host "[+] Driver built at: $DistEndpointDir" -ForegroundColor Green
 } else {
     Write-Error "[!] Build finished but output file not found at $DllPath"
     exit 1
@@ -71,7 +73,7 @@ Write-Host "[>>] Compiling Agent..."
 Invoke-Expression "cargo build -p agent $CargoProfileFlag"
 
 $AgentBuildPath = "$GeneralTargetSourceDir\$AgentName"
-$AgentDistPath = "$DistDir\$AgentName"
+$AgentDistPath = "$DistEndpointDir\$AgentName"
 Copy-Item $AgentBuildPath $AgentDistPath -Force
 
 # --- Hook dll build
@@ -81,7 +83,7 @@ Write-Host "[>>] Compiling Hook Dll..."
 Invoke-Expression "cargo build -p hook $CargoProfileFlag"
 
 $DllBuildPath = "$GeneralTargetSourceDir\$HookDllName"
-$DllDistPath = "$DistDir\$HookDllName"
+$DllDistPath = "$DistEndpointDir\$HookDllName"
 Copy-Item $DllBuildPath $DllDistPath -Force
 
 # --- GUI build
@@ -91,14 +93,14 @@ Write-Host "[>>] Compiling GUI..."
 Invoke-Expression "cargo build -p client $CargoProfileFlag"
 
 $GuiBuildPath = "$GeneralTargetSourceDir\$GuiName"
-$GuiDistPath = "$DistDir\$GuiName"
+$GuiDistPath = "$DistEndpointDir\$GuiName"
 Copy-Item $GuiBuildPath $GuiDistPath -Force
 
 # --- Copy ML assets
 $ModelInPath = "$ModelPath\$ModelName"
 $ModelFInPath = "$ModelPath\$ModelName"
-$ModelOutPath = "$DistDir\$ModelName"
-$ModelFOutPath = "$DistDir\$ModelName"
+$ModelOutPath = "$DistEndpointDir\$ModelName"
+$ModelFOutPath = "$DistEndpointDir\$ModelName"
 Write-Host "`n[i] Gathering provided model..." -ForegroundColor Cyan
 Copy-Item $ModelInPath $ModelOutPath -Force
 Copy-Item $ModelFInPath $ModelFOutPath -Force
@@ -106,6 +108,33 @@ Copy-Item $ModelFInPath $ModelFOutPath -Force
 # --- Copy static assets
 
 Write-Host "`n[i] Gathering provided assets..." -ForegroundColor Cyan
-Copy-Item -Path $AssetDir -Destination $DistDir -Force -Recurse
+Copy-Item -Path $AssetDir -Destination $DistEndpointDir -Force -Recurse
+
+# --- Server build
+
+Write-Host "`n[i] Starting Galatea Server Build..." -ForegroundColor Cyan
+Write-Host "[>>] Compiling Server..."
+Invoke-Expression "cargo build -p server $CargoProfileFlag"
+
+if (!(Test-Path $DistServerDir)) {
+    New-Item -ItemType Directory -Force -Path $DistServerDir | Out-Null
+}
+
+$ServerBuildPath = "$GeneralTargetSourceDir\$ServerName"
+$ServerDistPath = "$DistServerDir\$ServerName"
+Copy-Item $ServerBuildPath $ServerDistPath -Force
+
+Write-Host "[>>] Copying server static assets..."
+$ServerStaticDir = "server\server\static"
+$ServerWebDir = "server\server\web"
+Copy-Item -Path "$ServerStaticDir\*" -Destination $DistServerDir -Force -Recurse
+Copy-Item -Path "$ServerWebDir\*" -Destination "$DistServerDir\web" -Force -Recurse
+
+Write-Host "[>>] Copying server database..."
+$ServerDbSource = "static\assets\server\galatea_server.db"
+$ServerDbDest = "$DistServerDir\galatea_server.db"
+Copy-Item -Path $ServerDbSource -Destination $ServerDbDest -Force
+
+Write-Host "[+] Server built at: $DistServerDir" -ForegroundColor Green
 
 Write-Host "`n[+] Build Complete!" -ForegroundColor Green

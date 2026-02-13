@@ -1,6 +1,9 @@
 // Temporary file to hold config globals
 // should eventually be moved to external file with easier mod
 
+// SERVER INFO
+pub const SERVER_URI: &str = "localhost";
+pub const AGENT_PSK: &str = "galatea_secret";
 
 // NAMES
 pub const DRIVER_SERVICE_NAME: &str = "Galatea";

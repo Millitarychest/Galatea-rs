@@ -33,6 +33,8 @@ mod ipc;
 mod logger;
 mod probes;
 mod utils;
+mod network;
+
 use crate::{
     analyzer::{MlEngine, PackerSignatureEngine}, ipc::SendHandle,
 };
@@ -180,6 +182,10 @@ fn main() -> error::Result<()> {
 
     mimic_success!("Galatea Systems: Online");
     mimic_log!("(Press Ctrl+C to stop the agent)");
+
+    // register
+
+    let _ = network::server::register_with_server(config::SERVER_URI);
 
     loop {
         let mut event: GalateaEvent = unsafe { std::mem::zeroed() };
