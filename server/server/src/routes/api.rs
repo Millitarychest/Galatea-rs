@@ -12,7 +12,7 @@ fn validate_psk(auth: &AgentAuthentication) -> bool {
 
 /// POST /api/v1/agents/register
 pub async fn handle_register(Json(registration): Json<AgentRegistration>) -> (StatusCode, Json<serde_json::Value>) {
-    if !validate_psk(&registration.auth) {
+    if !validate_psk(&registration.auth.expose_secret()) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(json!({ "error": "Invalid PSK" })),
@@ -39,7 +39,7 @@ pub async fn handle_heartbeat(
     Path(id): Path<String>,
     Json(body): Json<AgentHeartbeat>,
 ) -> (StatusCode, Json<Value>) {
-    if !validate_psk(&body.auth) {
+    if !validate_psk(&body.auth.expose_secret()) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(json!({ "error": "Invalid PSK" })),
@@ -93,7 +93,7 @@ pub async fn handle_telemetry(
     Path(id): Path<String>,
     Json(body): Json<AgentTelemetry>,
 ) -> (StatusCode, Json<Value>) {
-    if !validate_psk(&body.auth) {
+    if !validate_psk(&body.auth.expose_secret()) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(json!({ "error": "Invalid PSK" })),
@@ -137,7 +137,7 @@ pub async fn handle_command_ack(
     Path((id, cmd_id)): Path<(String, String)>,
     Json(body): Json<AgentCommandAck>,
 ) -> (StatusCode, Json<Value>) {
-    if !validate_psk(&body.auth) {
+    if !validate_psk(&body.auth.expose_secret()) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(json!({ "error": "Invalid PSK" })),

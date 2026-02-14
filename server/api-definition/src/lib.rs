@@ -2,25 +2,32 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::secrets::{Secret, expose_secret};
+
+
+pub mod secrets;
 ////////////Agent Api Body/////////////
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AgentRegistration {
     pub uuid: Uuid,
     pub host_info: AgentHostInfo,
-    pub auth: AgentAuthentication,
+    #[serde(serialize_with = "expose_secret")]
+    pub auth: Secret<AgentAuthentication>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AgentHeartbeat {
     pub uuid: Uuid,
-    pub auth: AgentAuthentication,
+    #[serde(serialize_with = "expose_secret")]
+    pub auth: Secret<AgentAuthentication>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AgentTelemetry {
     pub uuid: Uuid,
-    pub auth: AgentAuthentication,
+    #[serde(serialize_with = "expose_secret")]
+    pub auth: Secret<AgentAuthentication>,
     #[serde(default = "default_telemetry_schema_version")]
     pub schema_version: u16,
     pub events: Vec<TelemetryEvent>,
@@ -29,7 +36,8 @@ pub struct AgentTelemetry {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AgentCommandAck {
     pub uuid: Uuid,
-    pub auth: AgentAuthentication,
+    #[serde(serialize_with = "expose_secret")]
+    pub auth: Secret<AgentAuthentication>,
     pub command_id: Uuid,
     pub success: bool,
     pub message: Option<String>,
