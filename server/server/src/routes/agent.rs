@@ -1,7 +1,9 @@
 use axum::extract::Path;
 use axum::response::Html;
+use api_definition::{TelemetryEvent, TelemetryVerdict};
 
 use crate::db::agent_db::{get_agent_by_id, AgentInfo};
+use crate::db::telemetry_db;
 use crate::state::AppContext;
 use crate::utils::fmt::format_timestamp;
 use super::layout;
@@ -23,11 +25,15 @@ pub async fn serve_agent(Path(id): Path<String>) -> Html<String> {
 }
 
 fn render_agent_content(agent: &AgentInfo) -> String {
+    let context = AppContext::global();
+    let events = telemetry_db::get_recent_events_for_agent(&context.db_pool, &agent.agent_id, 100)
+        .unwrap_or_default();
     let short_id = if agent.agent_id.len() > 8 {
         &agent.agent_id[..8]
     } else {
         &agent.agent_id
     };
+    let timeline_rows = render_timeline_rows(&events);
 
     include_str!("../../web/agent.html")
         .replace("{short_id}", short_id)
@@ -40,6 +46,7 @@ fn render_agent_content(agent: &AgentInfo) -> String {
         .replace("{ip_address}", &agent.ip_address)
         .replace("{registered_at}", &format_timestamp(&agent.registered_at))
         .replace("{last_heartbeat}", &agent.last_heartbeat_at.as_deref().map(format_timestamp).unwrap_or_else(|| "Never".to_string()))
+        .replace("{timeline_rows}", &timeline_rows)
 }
 
 fn render_agent_not_found(id: &str) -> String {
@@ -61,4 +68,90 @@ fn render_agent_not_found(id: &str) -> String {
         </div>"#,
         id
     )
+}
+
+fn render_timeline_rows(events: &[telemetry_db::TelemetryListItem]) -> String {
+    if events.is_empty() {
+        return r#"<tr>
+                <td colspan="5">
+                    <div class="empty-state">
+                        <div class="icon">📋</div>
+                        <p>No events for this agent yet.</p>
+                    </div>
+                </td>
+            </tr>"#
+        .to_string();
+    }
+
+    events
+        .iter()
+        .map(render_timeline_row)
+        .collect::<String>()
+}
+
+fn render_timeline_row(event: &telemetry_db::TelemetryListItem) -> String {
+    let parsed = serde_json::from_str::<TelemetryEvent>(&event.payload_json).ok();
+    let (process_name, process_id, threat_score, verdict_text, verdict_class) = match parsed {
+        Some(TelemetryEvent::Process(process)) => {
+            let name = process
+                .image_path
+                .rsplit(['\\', '/'])
+                .next()
+                .unwrap_or(process.image_path.as_str())
+                .to_string();
+            let score = process
+                .threat_score
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "-".to_string());
+
+            match process.verdict {
+                TelemetryVerdict::Allowed => {
+                    (name, process.process_id.to_string(), score, "allowed", "allowed")
+                }
+                TelemetryVerdict::Blocked => {
+                    (name, process.process_id.to_string(), score, "blocked", "blocked")
+                }
+            }
+        }
+        None => {
+            let fallback_process = if event.event_type.is_empty() {
+                "unknown".to_string()
+            } else {
+                event.event_type.clone()
+            };
+            (
+                fallback_process,
+                "-".to_string(),
+                "-".to_string(),
+                "unknown",
+                "allowed",
+            )
+        }
+    };
+
+    format!(
+        r#"<tr data-event-id="{event_id}">
+            <td>{timestamp}</td>
+            <td><code class="mono">{process_name}</code></td>
+            <td><code class="mono">{pid}</code></td>
+            <td><span class="threat-score">{threat_score}</span></td>
+            <td><span class="badge {verdict_class}">{verdict_text}</span></td>
+        </tr>"#,
+        event_id = escape_html(&event.event_id),
+        timestamp = escape_html(&format_timestamp(&event.occurred_at)),
+        process_name = escape_html(&process_name),
+        pid = escape_html(&process_id),
+        threat_score = escape_html(&threat_score),
+        verdict_class = escape_html(verdict_class),
+        verdict_text = escape_html(verdict_text),
+    )
+}
+
+fn escape_html(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
 }

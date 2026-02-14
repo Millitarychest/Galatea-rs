@@ -1,4 +1,4 @@
-<div class="page-header">
+﻿<div class="page-header">
     <h2>Event Feed</h2>
     <p>Detection events across all agents</p>
 </div>
@@ -6,15 +6,15 @@
 <div class="stats-grid">
     <div class="stat-card">
         <div class="label">Total Events</div>
-        <div class="value blue">0</div>
+        <div class="value blue">{total_events}</div>
     </div>
     <div class="stat-card">
         <div class="label">Blocked</div>
-        <div class="value red">0</div>
+        <div class="value red">{blocked_count}</div>
     </div>
     <div class="stat-card">
         <div class="label">Allowed</div>
-        <div class="value green">0</div>
+        <div class="value green">{allowed_count}</div>
     </div>
 </div>
 
@@ -34,14 +34,7 @@
             </tr>
         </thead>
         <tbody>
-            <tr>
-                <td colspan="6">
-                    <div class="empty-state">
-                        <div class="icon">⚡</div>
-                        <p>No events recorded yet. Events will appear here once agents report telemetry.</p>
-                    </div>
-                </td>
-            </tr>
+            {event_rows}
         </tbody>
     </table>
 </div>

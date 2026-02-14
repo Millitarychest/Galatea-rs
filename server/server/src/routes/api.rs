@@ -2,7 +2,9 @@ use axum::{Json, extract::Path, http::StatusCode};
 use serde_json::{Value, json};
 
 use crate::{config::AGENT_PSK, db, state::AppContext};
-use api_definition::{AgentAuthentication, AgentCommandAck, AgentHeartbeat, AgentRegistration};
+use api_definition::{
+    AgentAuthentication, AgentCommandAck, AgentHeartbeat, AgentRegistration, AgentTelemetry,
+};
 
 fn validate_psk(auth: &AgentAuthentication) -> bool {
     auth.psk == AGENT_PSK
@@ -88,22 +90,44 @@ pub async fn handle_heartbeat(
 
 /// POST /api/v1/agents/{id}/telemetry
 pub async fn handle_telemetry(
-    Path(_id): Path<String>,
-    Json(body): Json<Value>,
+    Path(id): Path<String>,
+    Json(body): Json<AgentTelemetry>,
 ) -> (StatusCode, Json<Value>) {
-    let event_count = body
-        .get("events")
-        .and_then(|v| v.as_array())
-        .map(|a| a.len())
-        .unwrap_or(0);
+    if !validate_psk(&body.auth) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "error": "Invalid PSK" })),
+        );
+    }
 
-    // TODO: Store events in database
+    let agent_id = body.uuid.to_string();
+    if id != agent_id {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "error": "Invalid Json-Body" })),
+        );
+    }
+
+    let accepted = match db::telemetry_db::insert_events(
+        &AppContext::global().db_pool,
+        &agent_id,
+        &body.events,
+    ) {
+        Ok(inserted) => inserted,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Failed to store telemetry events: {}", e) })),
+            );
+        }
+    };
+    let rejected = body.events.len().saturating_sub(accepted);
 
     (
         StatusCode::OK,
         Json(json!({
-            "accepted": event_count,
-            "rejected": 0
+            "accepted": accepted,
+            "rejected": rejected
         })),
     )
 }

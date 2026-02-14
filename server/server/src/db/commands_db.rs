@@ -47,7 +47,7 @@ pub fn get_pending_commands(pool: &super::DbPool, agent_id: &str) -> error::Resu
     let mut stmt = conn.prepare(
         "SELECT command_id, command_type, payload_json 
             FROM commands 
-            WHERE agent_id = ?1 AND status = '?2'
+            WHERE agent_id = ?1 AND status = ?2
             ORDER BY created_at ASC",
     )?;
 
@@ -70,7 +70,7 @@ pub fn mark_command_delivered(pool: &super::DbPool, command_id: &str) -> error::
 
     conn.execute(
         "UPDATE commands 
-            SET status = '?1', delivered_at = ?2
+            SET status = ?1, delivered_at = ?2
             WHERE command_id = ?3",
         [CmdStatus::Delivered.as_str(), &chrono::Utc::now().to_rfc3339(), command_id],
     )?;
@@ -84,7 +84,7 @@ pub fn complete_command(pool: &super::DbPool, command_id: &str) -> error::Result
 
     conn.execute(
         "UPDATE commands 
-            SET status = '?1', acked_at = ?2
+            SET status = ?1, acked_at = ?2
             WHERE command_id = ?3",
         [CmdStatus::Completed.as_str(), &chrono::Utc::now().to_rfc3339(), command_id],
     )?;

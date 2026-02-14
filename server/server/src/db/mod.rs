@@ -8,8 +8,9 @@ use r2d2_sqlite::SqliteConnectionManager;
 
 pub mod agent_db;
 pub mod commands_db;
+pub mod telemetry_db;
 
-const SQL_INIT_STATMENTS: [&str; 2] = [
+const SQL_INIT_STATMENTS: [&str; 4] = [
     "CREATE TABLE IF NOT EXISTS agents (
         agent_id    TEXT PRIMARY KEY,
         hostname    TEXT NOT NULL,
@@ -30,6 +31,16 @@ const SQL_INIT_STATMENTS: [&str; 2] = [
         delivered_at TEXT,
         acked_at     TEXT
     )",
+    "CREATE TABLE IF NOT EXISTS telemetry_events (
+        event_id     TEXT PRIMARY KEY,
+        agent_id     TEXT NOT NULL REFERENCES agents(agent_id),
+        event_type   TEXT NOT NULL,
+        occurred_at  TEXT NOT NULL,
+        ingested_at  TEXT NOT NULL,
+        payload_json TEXT NOT NULL
+    )",
+    "CREATE INDEX IF NOT EXISTS idx_telemetry_agent_time
+        ON telemetry_events (agent_id, occurred_at)",
 ];
 
 pub type DbPool = Pool<SqliteConnectionManager>;
@@ -51,4 +62,3 @@ pub fn init_db_pool(db_path: &str) -> error::Result<DbPool> {
 
     Ok(pool)
 }
-
