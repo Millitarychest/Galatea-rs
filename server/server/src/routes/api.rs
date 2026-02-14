@@ -2,7 +2,7 @@ use axum::{Json, extract::Path, http::StatusCode};
 use serde_json::{Value, json};
 
 use crate::{config::AGENT_PSK, db, state::AppContext};
-use api_definition::{AgentAuthentication, AgentHeartbeat, AgentRegistration};
+use api_definition::{AgentAuthentication, AgentCommandAck, AgentHeartbeat, AgentRegistration};
 
 fn validate_psk(auth: &AgentAuthentication) -> bool {
     auth.psk == AGENT_PSK
@@ -17,7 +17,7 @@ pub async fn handle_register(Json(registration): Json<AgentRegistration>) -> (St
         );
     }
 
-    if let Err(e) = db::register_agent(&AppContext::global().db_pool, &registration) {
+    if let Err(e) = db::agent_db::register_agent(&AppContext::global().db_pool, &registration) {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": format!("Failed to register agent: {}", e) })),
@@ -45,22 +45,21 @@ pub async fn handle_heartbeat(
     }
     
     let agent_id = body.uuid.to_string();
-
     if id != agent_id{
         return (
             StatusCode::UNAUTHORIZED,
-            Json(json!({ "error": "Invalid Agent ID" })),
+            Json(json!({ "error": "Invalid Json-Body" })),
         );
     }
 
-    if let Err(e) = db::update_heartbeat(&AppContext::global().db_pool, &agent_id) {
+    if let Err(e) = db::agent_db::update_heartbeat(&AppContext::global().db_pool, &agent_id) {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": format!("Failed to update heartbeat: {}", e) })),
         );
     }
 
-    let commands = match db::get_pending_commands(&AppContext::global().db_pool, &agent_id) {
+    let commands = match db::commands_db::get_pending_commands(&AppContext::global().db_pool, &agent_id) {
         Ok(cmds) => cmds,
         Err(e) => {
             return (
@@ -71,7 +70,7 @@ pub async fn handle_heartbeat(
     };
 
     for cmd in &commands {
-        let _ = db::mark_command_delivered(&AppContext::global().db_pool, &cmd.command_id);
+        let _ = db::commands_db::mark_command_delivered(&AppContext::global().db_pool, &cmd.command_id);
     }
 
     (
@@ -111,10 +110,30 @@ pub async fn handle_telemetry(
 
 /// POST /api/v1/agents/{id}/commands/{cmd_id}/ack
 pub async fn handle_command_ack(
-    Path((_id, _cmd_id)): Path<(String, String)>,
-    Json(_body): Json<Value>,
-) -> StatusCode {
-    // TODO: Update command status in database
+    Path((id, cmd_id)): Path<(String, String)>,
+    Json(body): Json<AgentCommandAck>,
+) -> (StatusCode, Json<Value>) {
+    if !validate_psk(&body.auth) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "error": "Invalid PSK" })),
+        );
+    }
+    let agent_id = body.uuid.to_string();
+    let body_cmd_id = body.command_id.to_string();
+    if id != agent_id || cmd_id != body_cmd_id {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "error": "Invalid Json-Body" })),
+        );
+    }
 
-    StatusCode::OK
+    if let Err(e) = db::commands_db::complete_command(&AppContext::global().db_pool, &cmd_id) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Failed to register agent: {}", e) })),
+        );
+    }
+
+    (StatusCode::OK, Json(json!("")))
 }

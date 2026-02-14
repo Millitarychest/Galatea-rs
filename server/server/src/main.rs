@@ -23,7 +23,7 @@ async fn stale_agent_monitor() {
         ticker.tick().await;
         
         let context = AppContext::global();
-        match db::mark_stale_agents_offline(&context.db_pool, config::AGENT_OFFLINE_TIMEOUT) {
+        match db::agent_db::mark_stale_agents_offline(&context.db_pool, config::AGENT_OFFLINE_TIMEOUT) {
             Ok(count) if count > 0 => {
                 mimic_core::mimic_log!("Marked {} agent(s) as offline (no heartbeat)", count);
             }

@@ -1,6 +1,6 @@
 use axum::response::Html;
 
-use crate::db::{get_all_agents, AgentInfo, AgentStatus};
+use crate::db::agent_db::{get_all_agents, AgentInfo, AgentStatus};
 use crate::state::AppContext;
 use crate::utils::fmt::format_timestamp;
 use super::layout;
@@ -56,7 +56,7 @@ fn render_dashboard_content(agents: &[AgentInfo]) -> String {
                         <td>{}</td>
                         <td>{}</td>
                     </tr>"#,
-                    agent.status.class(),
+                    agent.status.as_str(),
                     agent.status.as_str(),
                     agent.agent_id, agent.hostname,
                     short_id,

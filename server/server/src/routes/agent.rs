@@ -1,7 +1,7 @@
 use axum::extract::Path;
 use axum::response::Html;
 
-use crate::db::{get_agent_by_id, AgentInfo, AgentStatus};
+use crate::db::agent_db::{get_agent_by_id, AgentInfo};
 use crate::state::AppContext;
 use crate::utils::fmt::format_timestamp;
 use super::layout;
@@ -33,7 +33,7 @@ fn render_agent_content(agent: &AgentInfo) -> String {
         .replace("{short_id}", short_id)
         .replace("{id}", &agent.agent_id)
         .replace("{hostname}", &agent.hostname)
-        .replace("{status_class}", agent.status.class())
+        .replace("{status_class}", agent.status.as_str())
         .replace("{status}", agent.status.as_str())
         .replace("{os_version}", &agent.os_version)
         .replace("{agent_version}", &agent.agent_version)
