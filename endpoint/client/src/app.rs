@@ -2,6 +2,8 @@ use iced::widget::{column, container};
 use iced::{Element, Task, Theme};
 use shared::ipc::{DetectionEvent, IpcMessage};
 use std::collections::{HashSet, VecDeque};
+use iced::futures::stream;
+use std::time::Duration;
 
 use crate::ipc_client::{IpcClient, IpcClientMessage};
 use crate::theme::AppTheme;
@@ -152,8 +154,6 @@ impl GalateaGui {
 
     pub fn subscription(&self) -> iced::Subscription<Message> {
         // Poll for IPC messages every 100ms
-        use iced::futures::stream;
-        use std::time::Duration;
 
         iced::Subscription::run(|| {
             stream::unfold((), |_| async {

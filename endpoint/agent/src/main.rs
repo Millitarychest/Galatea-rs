@@ -263,7 +263,7 @@ fn main() -> error::Result<()> {
                 });
             }
             Err(e) => {
-                eprintln!("DeviceIoControl failed: {:?}", e);
+                mimic_error!("DeviceIoControl failed: {:?}", e);
                 break;
             }
         }

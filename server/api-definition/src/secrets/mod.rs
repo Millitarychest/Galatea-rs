@@ -3,27 +3,33 @@ use core::fmt;
 use std::any::type_name;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+/// Wrapper type changing the default debug output to redact the value in logging
 #[derive(Default, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 #[repr(transparent)]
 pub struct Secret<T: ?Sized>(T);
 
 impl<T> Secret<T> {
+    /// creates a new Secret containing the passed value
     #[inline]
     #[must_use = "the secret will be dropped if not used"]
     pub const fn new(secret: T) -> Self {
         Self(secret)
     }
 
+    /// convert into Secret
     #[inline]
     #[must_use]
     pub fn from(secret: impl Into<T>) -> Self {
         Self(secret.into())
     }
+
+    /// convert into Secret
     #[inline]
     pub fn try_from<U: TryInto<T>>(secret: U) -> Result<Self, Secret<U::Error>> {
         secret.try_into().map(Self).map_err(Secret)
     }
 
+    /// retreive the actual value of the secret
     #[inline]
     #[must_use = "expose_secret does nothing unless used"]
     pub const fn expose_secret(&self) -> &T {
@@ -89,7 +95,9 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for Secret<T> {
     }
 }
 
+/// Helper trait to allw serde compat
 pub trait SerializableSecret<T> {
+    /// Helper trait to allw serde compat
     type Exposed<'a>: Serialize
     where
         Self: 'a;

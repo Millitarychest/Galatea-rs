@@ -5,6 +5,7 @@ use windows::Win32::System::Threading::{
     QueryFullProcessImageNameW,
 };
 use windows::core::PWSTR;
+use windows::Win32::Foundation::FILETIME;
 
 #[repr(C)]
 struct ProcessBasicInformation {
@@ -119,8 +120,6 @@ fn get_command_line(_handle: HANDLE) -> Option<String> {
 }
 
 fn get_process_creation_time(handle: HANDLE) -> Option<DateTime<Utc>> {
-    use windows::Win32::Foundation::FILETIME;
-
     let mut creation_time: FILETIME = unsafe { std::mem::zeroed() };
     let mut exit_time: FILETIME = unsafe { std::mem::zeroed() };
     let mut kernel_time: FILETIME = unsafe { std::mem::zeroed() };
