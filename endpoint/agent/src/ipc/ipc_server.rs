@@ -4,18 +4,18 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use windows::Win32::Foundation::{
     CloseHandle, ERROR_BROKEN_PIPE, ERROR_NO_DATA, ERROR_PIPE_CONNECTED, HANDLE,
-    INVALID_HANDLE_VALUE,
+    HLOCAL, INVALID_HANDLE_VALUE,
 };
-use windows::Win32::Security::{
-    InitializeSecurityDescriptor, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES,
-    SetSecurityDescriptorDacl,
+use windows::Win32::Security::Authorization::{
+    ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
 };
+use windows::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
 use windows::Win32::Storage::FileSystem::{PIPE_ACCESS_OUTBOUND, WriteFile};
 use windows::Win32::System::Pipes::{
     ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, PIPE_READMODE_MESSAGE,
     PIPE_TYPE_MESSAGE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
 };
-use windows::core::PWSTR;
+use windows::core::{PWSTR, w};
 
 
 
@@ -117,42 +117,32 @@ fn accept_clients_loop(client_sender: Sender<super::SendHandle>) {
 }
 
 fn create_pipe_instance() -> Option<HANDLE> {
-    // Create security descriptor for owner-only access
-    let mut sd: windows::Win32::Security::SECURITY_DESCRIPTOR = unsafe { std::mem::zeroed() };
+    // SYSTEM + Administrators full access; Interactive Users read access for non-admin client.
+    let mut security_descriptor = PSECURITY_DESCRIPTOR::default();
+    let sddl = w!("D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GR;;;IU)");
     unsafe {
-        if InitializeSecurityDescriptor(
-            PSECURITY_DESCRIPTOR(&mut sd as *mut _ as *mut _),
-            1, // SECURITY_DESCRIPTOR_REVISION
-        )
-        .is_err()
-        {
-            mimic_error!("[IPC] Failed to initialize security descriptor");
-            return None;
-        }
-
-        // Set NULL DACL (allows owner only)
-        if SetSecurityDescriptorDacl(
-            PSECURITY_DESCRIPTOR(&mut sd as *mut _ as *mut _),
-            true,
+        if ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl,
+            SDDL_REVISION_1 as u32,
+            &mut security_descriptor,
             None,
-            false,
         )
         .is_err()
         {
-            mimic_error!("[IPC] Failed to set security descriptor DACL");
+            mimic_error!("[IPC] Failed to build pipe security descriptor from SDDL");
             return None;
         }
     }
 
     let sa = SECURITY_ATTRIBUTES {
         nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
-        lpSecurityDescriptor: &mut sd as *mut _ as *mut _,
+        lpSecurityDescriptor: security_descriptor.0,
         bInheritHandle: false.into(),
     };
 
     let pipe_name_wide: Vec<u16> = PIPE_NAME.encode_utf16().chain(std::iter::once(0)).collect();
 
-    unsafe {
+    let result = unsafe {
         let handle = CreateNamedPipeW(
             PWSTR(pipe_name_wide.as_ptr() as *mut _),
             PIPE_ACCESS_OUTBOUND,
@@ -170,7 +160,13 @@ fn create_pipe_instance() -> Option<HANDLE> {
         } else {
             Some(handle)
         }
+    };
+
+    unsafe {
+        let _ = windows::Win32::Foundation::LocalFree(Some(HLOCAL(security_descriptor.0)));
     }
+
+    result
 }
 
 fn broadcast_message(clients: &mut Vec<HANDLE>, message: &IpcMessage) {

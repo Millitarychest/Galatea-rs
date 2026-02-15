@@ -6,11 +6,13 @@ use mimic_core::mimic_log;
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 
+use crate::state::AppConfig;
+
 pub mod agent_db;
 pub mod commands_db;
 pub mod telemetry_db;
 
-const SQL_INIT_STATMENTS: [&str; 4] = [
+const SQL_INIT_STATMENTS: [&str; 5] = [
     "CREATE TABLE IF NOT EXISTS agents (
         agent_id    TEXT PRIMARY KEY,
         hostname    TEXT NOT NULL,
@@ -41,6 +43,10 @@ const SQL_INIT_STATMENTS: [&str; 4] = [
     )",
     "CREATE INDEX IF NOT EXISTS idx_telemetry_agent_time
         ON telemetry_events (agent_id, occurred_at)",
+    "CREATE TABLE IF NOT EXISTS server_config (
+        id                      INTEGER PRIMARY KEY CHECK (id = 1),
+        registration_secret     TEXT NOT NULL
+    )",
 ];
 
 pub type DbPool = Pool<SqliteConnectionManager>;
@@ -61,4 +67,42 @@ pub fn init_db_pool(db_path: &str) -> error::Result<DbPool> {
     }
 
     Ok(pool)
+}
+
+pub fn fetch_persisted_config(pool: &DbPool) -> Option<AppConfig>{
+    let conn = match pool.get() {
+        Ok(c) => c,
+        Err(_) => {return None}
+    };
+
+    let mut stmt = match conn.prepare("SELECT registration_secret FROM server_config WHERE id = 1 LIMIT 1") {
+        Ok(s) => s,
+        Err(_) => {return None}
+    };
+
+    let config: Option<AppConfig> = match stmt.query_one([], |row|{
+        Ok(AppConfig {
+            agent_registration_secret: row.get(0)?,
+        })
+    }) {
+        Ok(r) => Some(r),
+        Err(_) => {None}
+    };
+
+    config
+}
+
+pub fn persist_config(pool: &DbPool, config: &AppConfig) -> error::Result<()> {
+    let conn = pool
+        .get()
+        .map_err(|e| format!("Failed to get DB conn: {}", e))?;
+
+    conn.execute(
+        "INSERT INTO server_config (id, registration_secret) VALUES (1, ?1)
+         ON CONFLICT(id) DO UPDATE SET registration_secret = excluded.registration_secret",
+        [&config.agent_registration_secret],
+    )
+    .map_err(|e| format!("Failed to persist config: {}", e))?;
+
+    Ok(())
 }
