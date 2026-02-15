@@ -57,7 +57,7 @@ fn main() -> error::Result<()> {
     mimic_log!("Initializing Galatea Agent...");
 
     if cfg!(debug_assertions) {
-        ctrlc::set_handler(move || {
+        if let Err(e) = ctrlc::set_handler(move || {
             mimic_log!("[DEV] Ctrl+C Detected! Initiating cleanup...");
 
             let handle_val = GLOBAL_LISTENER_HANDLE.load(Ordering::SeqCst);
@@ -68,23 +68,50 @@ fn main() -> error::Result<()> {
                     let _ = CancelIoEx(handle, None);
                 }
             }
-        })
-        .expect("Error setting Ctrl-C handler");
+        }) {
+            mimic_error!("Failed to set Ctrl-C handler: {}", e);
+            mimic_bail!("Failed to initialize signal handling");
+        }
     }
 
     init_driver()?;
 
     // Setup Database Connection
     let db_path = current_dir.join(DB_FILE_NAME);
-    let db_pool = db::init_db_pool(db_path.to_str().unwrap())?;
+    let db_path_str = match db_path.to_str() {
+        Some(path) => path,
+        None => {
+            mimic_error!(
+                "Database path contains invalid UTF-8. Startup cannot continue: {:?}",
+                db_path
+            );
+            mimic_bail!("Invalid UTF-8 database path");
+        }
+    };
+    let db_pool = db::init_db_pool(db_path_str)?;
     mimic_success!("Knowledge Base (Signatures) Loaded.");
 
     // Load Packer Signatures
     let mut sig_engine = PackerSignatureEngine::new();
     let sig_path = current_dir.join("userdb.txt");
     if sig_path.exists() {
-        if let Err(e) = sig_engine.load(sig_path.to_str().unwrap()) {
-            mimic_error!("Failed to load signatures: {}", e);
+        match sig_path.to_str() {
+            Some(path) => {
+                if let Err(e) = sig_engine.load(path) {
+                    mimic_error!("Failed to load signatures: {}", e);
+                    mimic_bail!("Failed to load signatures: {}", e)
+                }
+            }
+            None => {
+                mimic_error!(
+                    "Failed signature load due to non-UTF8 path: {:?}",
+                    sig_path
+                );
+                mimic_bail!(
+                    "Failed signature load due to non-UTF8 path: {:?}",
+                    sig_path
+                );
+            }
         }
     } else {
         mimic_log!("No external userdb.txt found. Using internal heuristics only.");
@@ -95,13 +122,22 @@ fn main() -> error::Result<()> {
     let ml_path = current_dir.join("model.onnx");
     let ml_engine = if ml_path.exists() {
         mimic_log!("Loading AI Model from: {:?}", ml_path);
-        match MlEngine::new(ml_path.to_str().unwrap()) {
-            Ok(engine) => {
-                mimic_success!("AI Model Loaded Successfully.");
-                Some(engine)
-            }
-            Err(e) => {
-                mimic_error!("Failed to load AI Model: {}", e);
+        match ml_path.to_str() {
+            Some(path) => match MlEngine::new(path) {
+                Ok(engine) => {
+                    mimic_success!("AI Model Loaded Successfully.");
+                    Some(engine)
+                }
+                Err(e) => {
+                    mimic_error!("Failed to load AI Model: {}", e);
+                    None
+                }
+            },
+            None => {
+                mimic_error!(
+                    "Skipping ML engine initialization due to non-UTF8 path: {:?}",
+                    ml_path
+                );
                 None
             }
         }

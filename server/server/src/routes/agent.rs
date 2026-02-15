@@ -1,4 +1,5 @@
 use axum::extract::Path;
+use axum::http::StatusCode;
 use axum::response::Html;
 use api_definition::{TelemetryEvent, TelemetryVerdict};
 
@@ -8,24 +9,39 @@ use crate::state::AppContext;
 use crate::utils::fmt::format_timestamp;
 use super::layout;
 
+/// GET /agents/{id} - Agent detail page
+pub async fn serve_agent(Path(id): Path<String>) -> (StatusCode, Html<String>) {
+    let context = match AppContext::ensure_global() {
+        Ok(context) => context,
+        Err(e) => {
+            mimic_core::mimic_log!("Failed to acquire AppContext for agent page: {}", e);
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Html("Service unavailable".to_string()),
+            );
+        }
+    };
 
-
-/// GET /agents/{id} — Agent detail page
-pub async fn serve_agent(Path(id): Path<String>) -> Html<String> {
-    let context = AppContext::global();
     let agent = get_agent_by_id(&context.db_pool, &id).unwrap_or(None);
 
     let content = if let Some(agent) = agent {
-        render_agent_content(&agent)
+        render_agent_content(&agent, context)
     } else {
         render_agent_not_found(&id)
     };
 
-    layout::page("Agent Detail", "", &content)
+    (
+        StatusCode::OK,
+        layout::page(
+            "Agent Detail",
+            "",
+            &context.config.agent_registration_secret,
+            &content,
+        ),
+    )
 }
 
-fn render_agent_content(agent: &AgentInfo) -> String {
-    let context = AppContext::global();
+fn render_agent_content(agent: &AgentInfo, context: &AppContext) -> String {
     let events = telemetry_db::get_recent_events_for_agent(&context.db_pool, &agent.agent_id, 100)
         .unwrap_or_default();
     let short_id = if agent.agent_id.len() > 8 {
@@ -45,7 +61,14 @@ fn render_agent_content(agent: &AgentInfo) -> String {
         .replace("{agent_version}", &agent.agent_version)
         .replace("{ip_address}", &agent.ip_address)
         .replace("{registered_at}", &format_timestamp(&agent.registered_at))
-        .replace("{last_heartbeat}", &agent.last_heartbeat_at.as_deref().map(format_timestamp).unwrap_or_else(|| "Never".to_string()))
+        .replace(
+            "{last_heartbeat}",
+            &agent
+                .last_heartbeat_at
+                .as_deref()
+                .map(format_timestamp)
+                .unwrap_or_else(|| "Never".to_string()),
+        )
         .replace("{timeline_rows}", &timeline_rows)
 }
 

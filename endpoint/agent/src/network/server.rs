@@ -25,7 +25,11 @@ pub fn register_with_server(server_uri: &str)-> error::Result<()>{
 
     mimic_log!("{:?}", send_body);
 
-    let resp = ureq::post(server_uri.to_owned() + "/api/v1/agents/register").send_json(&send_body)?.body_mut().read_to_string().unwrap();
+    let resp = ureq::post(server_uri.to_owned() + "/api/v1/agents/register")
+        .send_json(&send_body)?
+        .body_mut()
+        .read_to_string()
+        .map_err(|e| format!("Failed to read registration response: {e}"))?;
     mimic_log!("{:?}", resp);
     mimic_log!("----------------------------------------------------");
     Ok(())

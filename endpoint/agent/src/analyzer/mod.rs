@@ -153,10 +153,18 @@ pub fn analyze_event(
         if ctx.verdict_allow {
             let current_dir = utils::exe_directory();
             let dll_path = current_dir.join(HOOK_FILE_NAME);
-            match inject_dll(ctx.event.process_id as u64, dll_path.to_str().unwrap()) {
-                Ok(_) => mimic_log!("injected"),
-                Err(e) => mimic_error!("Inject failed: {}", e),
-            };
+            match dll_path.to_str() {
+                Some(path) => match inject_dll(ctx.event.process_id as u64, path) {
+                    Ok(_) => mimic_log!("injected"),
+                    Err(e) => mimic_error!("Inject failed: {}", e),
+                },
+                None => {
+                    mimic_error!(
+                        "Skipping hook injection due to non-UTF8 DLL path: {:?}",
+                        dll_path
+                    );
+                }
+            }
         }
 
         correlate_and_broadcast(ctx, driver, ipc_sender.as_ref());

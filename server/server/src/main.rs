@@ -4,10 +4,10 @@ use axum::{
     Router,
     routing::{get, post},
 };
-use tokio::time::interval;
+use tokio::time::{interval, sleep};
 use tower_http::services::ServeDir;
 
-use crate::{routes::{agent, api, dashboard, events}, state::AppContext};
+use crate::{routes::{agent, api, dashboard, events}, state::{AppContext, set_startup_config}};
 
 mod config;
 mod state;
@@ -21,8 +21,14 @@ async fn stale_agent_monitor() {
     
     loop {
         ticker.tick().await;
-        
-        let context = AppContext::global();
+
+        let context = match AppContext::ensure_global() {
+            Ok(context) => context,
+            Err(e) => {
+                mimic_core::mimic_log!("Skipping stale monitor tick: failed to get AppContext: {}", e);
+                continue;
+            }
+        };
         match db::agent_db::mark_stale_agents_offline(&context.db_pool, config::AGENT_OFFLINE_TIMEOUT) {
             Ok(count) if count > 0 => {
                 mimic_core::mimic_log!("Marked {} agent(s) as offline (no heartbeat)", count);
@@ -61,9 +67,34 @@ async fn main() {
         Some(inner) => inner,
         None =>  config::SERVER_PORT,
     };
-    let db_pool = db::init_db_pool(args.db_path.to_str().unwrap()).unwrap();
+
+    if let Err(e) = set_startup_config(args.db_path.clone(), port) {
+        mimic_core::mimic_log!("Startup config initialization failed: {}", e);
+        std::process::exit(1);
+    }
+
+    let db_path = match args.db_path.to_str() {
+        Some(path) => path,
+        None => {
+            mimic_core::mimic_log!(
+                "DB path contains invalid UTF-8 during startup: {:?}",
+                args.db_path
+            );
+            std::process::exit(1);
+        }
+    };
+    let db_pool = match db::init_db_pool(db_path) {
+        Ok(pool) => pool,
+        Err(e) => {
+            mimic_core::mimic_log!("Failed to initialize DB pool: {}", e);
+            std::process::exit(1);
+        }
+    };
     let context = AppContext::new(db_pool);
-    context.set_global().expect("Failed to set global AppContext");
+    if let Err(e) = context.set_global() {
+        mimic_core::mimic_log!("Failed to set global AppContext: {}", e);
+        std::process::exit(1);
+    }
 
     let socket_addr = SocketAddr::from((config::SERVER_INTERFACE, port));
 
@@ -83,9 +114,23 @@ async fn main() {
         // Static files
         .nest_service("/static", ServeDir::new(static_dir()));
 
-    println!("Galatea Server listening on http://{}", socket_addr);
-    axum_server::bind(socket_addr)
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
+    mimic_core::mimic_log!("Galatea Server listening on http://{}", socket_addr);
+    let mut backoff_secs: u64 = 1;
+    loop {
+        match axum_server::bind(socket_addr)
+            .serve(app.clone().into_make_service())
+            .await
+        {
+            Ok(_) => break,
+            Err(e) => {
+                mimic_core::mimic_log!(
+                    "Server runtime error: {}. Retrying in {}s",
+                    e,
+                    backoff_secs
+                );
+                sleep(std::time::Duration::from_secs(backoff_secs)).await;
+                backoff_secs = (backoff_secs * 2).min(30);
+            }
+        }
+    }
 }

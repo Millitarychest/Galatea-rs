@@ -1,8 +1,12 @@
 use axum::response::Html;
-use crate::state::AppContext;
 
-pub fn page(title: &str, active: &str, content: &str) -> Html<String> {
-    let registration_secret = escape_html(&AppContext::global().config.agent_registration_secret);
+pub fn page(
+    title: &str,
+    active: &str,
+    registration_secret: &str,
+    content: &str,
+) -> Html<String> {
+    let escaped_secret = escape_html(registration_secret);
 
     Html(format!(
         r#"<!DOCTYPE html>
@@ -104,7 +108,7 @@ pub fn page(title: &str, active: &str, content: &str) -> Html<String> {
 </html>"#,
         title = title,
         content = content,
-        registration_secret = registration_secret,
+        registration_secret = escaped_secret,
         fleet_active = if active == "fleet" { "active" } else { "" },
         events_active = if active == "events" { "active" } else { "" },
     ))

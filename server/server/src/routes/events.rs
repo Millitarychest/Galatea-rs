@@ -1,4 +1,4 @@
-﻿use axum::response::Html;
+use axum::{http::StatusCode, response::Html};
 use api_definition::{TelemetryEvent, TelemetryVerdict};
 
 use super::layout;
@@ -7,11 +7,29 @@ use crate::state::AppContext;
 use crate::utils::fmt::format_timestamp;
 
 /// GET /events - All events across fleet
-pub async fn serve_events() -> Html<String> {
-    let context = AppContext::global();
+pub async fn serve_events() -> (StatusCode, Html<String>) {
+    let context = match AppContext::ensure_global() {
+        Ok(context) => context,
+        Err(e) => {
+            mimic_core::mimic_log!("Failed to acquire AppContext for events: {}", e);
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Html("Service unavailable".to_string()),
+            );
+        }
+    };
+
     let events = telemetry_db::get_recent_events(&context.db_pool, 200).unwrap_or_default();
     let content = render_events_content(&events);
-    layout::page("Event Feed", "events", &content)
+    (
+        StatusCode::OK,
+        layout::page(
+            "Event Feed",
+            "events",
+            &context.config.agent_registration_secret,
+            &content,
+        ),
+    )
 }
 
 fn render_events_content(events: &[TelemetryListItem]) -> String {
@@ -22,7 +40,7 @@ fn render_events_content(events: &[TelemetryListItem]) -> String {
         r#"<tr>
                 <td colspan="6">
                     <div class="empty-state">
-                        <div class="icon">⚡</div>
+                        <div class="icon">[!]</div>
                         <p>No events recorded yet. Events will appear here once agents report telemetry.</p>
                     </div>
                 </td>

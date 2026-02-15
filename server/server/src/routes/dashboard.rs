@@ -1,4 +1,4 @@
-use axum::response::Html;
+use axum::{http::StatusCode, response::Html};
 
 use crate::db::agent_db::{get_all_agents, AgentInfo, AgentStatus};
 use crate::state::AppContext;
@@ -6,15 +6,32 @@ use crate::utils::fmt::format_timestamp;
 use super::layout;
 
 /// GET / — Fleet overview dashboard
-pub async fn serve_dashboard() -> Html<String> {
-    let context = AppContext::global();
+pub async fn serve_dashboard() -> (StatusCode, Html<String>) {
+    let context = match AppContext::ensure_global() {
+        Ok(context) => context,
+        Err(e) => {
+            mimic_core::mimic_log!("Failed to acquire AppContext for dashboard: {}", e);
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Html("Service unavailable".to_string()),
+            );
+        }
+    };
     let agents = match get_all_agents(&context.db_pool) {
         Ok(agents) => agents,
         Err(_) => vec![],
     };
 
     let content = render_dashboard_content(&agents);
-    layout::page("Fleet Overview", "fleet", &content)
+    (
+        StatusCode::OK,
+        layout::page(
+            "Fleet Overview",
+            "fleet",
+            &context.config.agent_registration_secret,
+            &content,
+        ),
+    )
 }
 
 fn render_dashboard_content(agents: &[AgentInfo]) -> String {
