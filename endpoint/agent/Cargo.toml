@@ -4,27 +4,27 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-mimic-core = { git = "ssh://git@github.com/Millitarychest/mimic-core-rs.git", branch = "master", features = ["privilege","logger","shell"]}
+mimic-core = { workspace = true, features = ["privilege", "logger", "shell"] }
 api-definition = { path = "../../server/api-definition" }
 shared = { path = "../shared", features = ["agent_ipc"] }
 
-chrono = "0.4"
-ctrlc = "3.5.1"
-dunce = "1.0.5"
-goblin = "0.10.4"
-hex = "0.4.3"
-md-5 = "0.10.6"
-moka = { version = "0.12.13", features = ["sync"] }
-ndarray = "0.17.2"
-ort = "2.0.0-rc.11"
-r2d2 = "0.8.10"
-r2d2_sqlite = "0.32.0"
-rusqlite = { version = "0.38.0", features = ["bundled"] }
-serde_json = "1.0"
-threadpool = "1.8.1"
-ureq = {version = "3.2.0", features = ["json"]}
-uuid = { version = "1.0", features = ["v4"] }
-windows = { version = "0.62.2", features = [
+chrono.workspace = true
+ctrlc.workspace = true
+dunce.workspace = true
+goblin.workspace = true
+hex.workspace = true
+md-5.workspace = true
+moka = { workspace = true, features = ["sync"] }
+ndarray.workspace = true
+ort.workspace = true
+r2d2.workspace = true
+r2d2_sqlite.workspace = true
+rusqlite = { workspace = true, features = ["bundled"] }
+serde_json.workspace = true
+threadpool.workspace = true
+ureq = { workspace = true, features = ["json"] }
+uuid = { workspace = true, features = ["v4"] }
+windows = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_Storage_FileSystem",
     "Win32_System_IO",
