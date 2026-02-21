@@ -15,7 +15,7 @@ In rust code always follow these coding guidelines when available:
 - Never place `use` statements inside functions. All imports at file top.
 - Do not create small helper methods that are referenced only once.
 - If you have three or more repetitions, make a jig. This is a hard rule: 3+ repetitions = create an abstraction. Less than 3 = duplicate the pattern.
-- For authentication secret related fields in the API definitions wrap them in the `Secret`, defined in [secrets](../../../server/api-definition/src/secrets/), and add use `#[serde(serialize_with = "expose_secret")]` to expose the secret for serialization.
+- For authentication secret related fields in the API definitions wrap them in the `Secret`, defined in [secrets](../../../server/babel-api-definition/src/secrets/), and add use `#[serde(serialize_with = "expose_secret")]` to expose the secret for serialization.
 - For logging prefer the macros `mimic_log!`, `mimic_error!` and `mimic_success!` over the standard output macros in crates where `std` is available
 - Reduce allocations by using things like ``with_capacity`` to Pre-allocate
 
@@ -55,3 +55,5 @@ In rust code always follow these coding guidelines when available:
 - Don't block - Never use std::thread::sleep in async
 - Don't hold locks across awaits - Causes deadlocks
 - Don't ignore errors - Propagate with ? or log
+
+

@@ -14,6 +14,12 @@ The project is split up into the following components:
     - [api-definitions](/server/api-definition/) : This crate defines the API interface definitions used for agent <-> server communication
 
 
+## Naming
+
+- The overall project is called "Galatea Suite" or "Galatea EDR"
+- The enpoint component is called "galatea" therefore all projects that are part of it shold be prefixed "galatea-"
+- The contral managment server is called "babel" therefore all projects that belong to the server should be prefixed "babel-"
+
 ## Skills:
 
 For domain specific knowledge and skills i have defined skills in the [.agent/skills](./.agent/skills) folder. This folder contains a subfolder for each skill. These contain the skill specific files, with the specific `SKILL.md` files acting as the entry point for the skills.
@@ -24,3 +30,4 @@ For domain specific knowledge and skills i have defined skills in the [.agent/sk
 
 ## PR instructions
 - Title format: `[<component_name>:<feature_name>] <Title>`
+

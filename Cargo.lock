@@ -1646,6 +1646,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "galatea-userland-hooks"
+version = "0.1.0"
+dependencies = [
+ "windows 0.62.2",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1930,13 +1937,6 @@ name = "hmac-sha256"
 version = "1.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ad6880c8d4a9ebf39c6e8b77007ce223f646a4d21ce29d99f70cb16420545425"
-
-[[package]]
-name = "hook"
-version = "0.1.0"
-dependencies = [
- "windows 0.62.2",
-]
 
 [[package]]
 name = "http"

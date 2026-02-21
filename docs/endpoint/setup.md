@@ -7,6 +7,9 @@
 
 ## VM Setup
 
+> [!NOTE]
+> A good setup starting point can be found at [codentium.com](https://codentium.com/guides/windows-dev/windows-drivers-in-rust-prerequisites/)
+
 To run this project you need to setup your VM to allow self-signed drivers and debugging. Run the following commands in an elevated PowerShell prompt:
 
 ```powershell

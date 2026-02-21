@@ -1,6 +1,15 @@
 [workspace]
 resolver="3"
-members = [ "endpoint/agent", "endpoint/hook", "endpoint/driver", "endpoint/shared", "endpoint/client", "server/server", "server/api-definition"]
+members = [ 
+    "endpoint/galatea-agent", 
+    "endpoint/galatea-userland-hooks", 
+    "endpoint/galatea-kernel-sensor", 
+    "endpoint/galatea-shared", 
+    "endpoint/galatea-client", 
+    
+    "server/server", 
+    "server/api-definition"
+]
 
 [workspace.dependencies]
 async-std = "1.13"
