@@ -25,32 +25,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
-name = "agent"
-version = "0.1.0"
-dependencies = [
- "api-definition",
- "chrono",
- "ctrlc",
- "dunce",
- "goblin",
- "hex",
- "md-5",
- "mimic-core",
- "moka",
- "ndarray",
- "ort",
- "r2d2",
- "r2d2_sqlite",
- "rusqlite",
- "serde_json",
- "shared",
- "threadpool",
- "ureq",
- "uuid",
- "windows 0.62.2",
-]
-
-[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -172,16 +146,6 @@ name = "anyhow"
 version = "1.0.100"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
-
-[[package]]
-name = "api-definition"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "serde",
- "serde_json",
- "uuid",
-]
 
 [[package]]
 name = "arc-swap"
@@ -508,6 +472,36 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tower-service",
+]
+
+[[package]]
+name = "babel-api-definition"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
+name = "babel-server"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "axum-server",
+ "babel-api-definition",
+ "chrono",
+ "clap",
+ "mimic-core",
+ "r2d2",
+ "r2d2_sqlite",
+ "rand 0.10.0",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower-http",
 ]
 
 [[package]]
@@ -860,18 +854,6 @@ name = "clap_lex"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a822ea5bc7590f9d40f1ba12c0dc3c2760f3482c6984db1573ad11031420831"
-
-[[package]]
-name = "client"
-version = "0.1.0"
-dependencies = [
- "async-std",
- "chrono",
- "iced",
- "serde_json",
- "shared",
- "windows 0.62.2",
-]
 
 [[package]]
 name = "clipboard-win"
@@ -1263,18 +1245,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 
 [[package]]
-name = "driver"
-version = "0.1.0"
-dependencies = [
- "shared",
- "wdk",
- "wdk-alloc",
- "wdk-build",
- "wdk-panic",
- "wdk-sys",
-]
-
-[[package]]
 name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1643,6 +1613,66 @@ dependencies = [
  "pin-project-lite",
  "pin-utils",
  "slab",
+]
+
+[[package]]
+name = "galatea-agent"
+version = "0.1.0"
+dependencies = [
+ "babel-api-definition",
+ "chrono",
+ "ctrlc",
+ "dunce",
+ "galatea-shared",
+ "goblin",
+ "hex",
+ "md-5",
+ "mimic-core",
+ "moka",
+ "ndarray",
+ "ort",
+ "r2d2",
+ "r2d2_sqlite",
+ "rusqlite",
+ "serde_json",
+ "threadpool",
+ "ureq",
+ "uuid",
+ "windows 0.62.2",
+]
+
+[[package]]
+name = "galatea-client"
+version = "0.1.0"
+dependencies = [
+ "async-std",
+ "chrono",
+ "galatea-shared",
+ "iced",
+ "serde_json",
+ "windows 0.62.2",
+]
+
+[[package]]
+name = "galatea-kernel-sensor"
+version = "0.1.0"
+dependencies = [
+ "galatea-shared",
+ "wdk",
+ "wdk-alloc",
+ "wdk-build",
+ "wdk-panic",
+ "wdk-sys",
+]
+
+[[package]]
+name = "galatea-shared"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "uuid",
 ]
 
 [[package]]
@@ -4120,42 +4150,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "server"
-version = "0.1.0"
-dependencies = [
- "api-definition",
- "axum",
- "axum-server",
- "chrono",
- "clap",
- "mimic-core",
- "r2d2",
- "r2d2_sqlite",
- "rand 0.10.0",
- "rusqlite",
- "serde",
- "serde_json",
- "tokio",
- "tower-http",
-]
-
-[[package]]
 name = "sharded-slab"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f40ca3c46823713e0d4209592e8d6e826aa57e928f09752619fc696c499637f6"
 dependencies = [
  "lazy_static",
-]
-
-[[package]]
-name = "shared"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "serde",
- "serde_json",
- "uuid",
 ]
 
 [[package]]

@@ -12,7 +12,7 @@ DefaultDestDir = 13
 1 = %DiskName%,,,""
 
 [SourceDisksFiles]
-driver.sys  = 1,,
+galatea_kernel_sensor.sys  = 1,,
 
 ; ================= Install Section =================
 
@@ -20,7 +20,7 @@ driver.sys  = 1,,
 CopyFiles = Galatea_CopyFiles
 
 [Galatea_CopyFiles]
-driver.sys
+galatea_kernel_sensor.sys
 
 ; ================= Service Section =================
 
@@ -32,7 +32,7 @@ DisplayName    = %Galatea.SVCDESC%
 ServiceType    = 1               ; SERVICE_KERNEL_DRIVER
 StartType      = 3               ; SERVICE_DEMAND_START
 ErrorControl   = 1               ; SERVICE_ERROR_NORMAL
-ServiceBinary  = %13%\driver.sys
+ServiceBinary  = %13%\galatea_kernel_sensor.sys
 
 ; ================= Strings Section =================
 

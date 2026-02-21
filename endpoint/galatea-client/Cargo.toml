@@ -8,7 +8,7 @@ async-std.workspace = true
 chrono.workspace = true
 iced.workspace = true
 serde_json.workspace = true
-shared = { path = "../shared", features = ["client_ipc"] }
+galatea-shared = { path = "../galatea-shared", features = ["client_ipc"] }
 windows = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_Storage_FileSystem",

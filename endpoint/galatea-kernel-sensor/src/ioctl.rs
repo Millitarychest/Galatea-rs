@@ -7,7 +7,7 @@ use core::ptr::addr_of_mut;
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicPtr, Ordering};
 
-use shared::{GalateaEvent, GalateaVerdict, IOCTL_GET_EVENT, IOCTL_REGISTER_AGENT, IOCTL_SEND_VERDICT};
+use galatea_shared::{GalateaEvent, GalateaVerdict, IOCTL_GET_EVENT, IOCTL_REGISTER_AGENT, IOCTL_SEND_VERDICT};
 use crate::{PENDING_IRP_LOCK,PENDING_IRP,AGENT_PROCESS};
 
 pub unsafe extern "C" fn dispatch_create_close(_device: *mut DEVICE_OBJECT, irp: *mut IRP) -> NTSTATUS {

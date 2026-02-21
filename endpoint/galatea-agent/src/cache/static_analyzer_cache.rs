@@ -1,7 +1,7 @@
 use std::time::SystemTime;
 
 use mimic_core::mimic_log;
-use shared::ipc::DetectionDetails;
+use galatea_shared::ipc::DetectionDetails;
 
 use crate::probes::file_identity::get_file_index;
 

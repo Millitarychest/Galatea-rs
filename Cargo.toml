@@ -7,8 +7,8 @@ members = [
     "endpoint/galatea-shared", 
     "endpoint/galatea-client", 
     
-    "server/server", 
-    "server/api-definition"
+    "server/babel-server", 
+    "server/babel-api-definition"
 ]
 
 [workspace.dependencies]

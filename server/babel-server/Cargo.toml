@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 mimic-core = { workspace = true, features = ["logger"] }
-api-definition = { path = "../api-definition" }
+babel-api-definition = { path = "../babel-api-definition" }
 
 axum.workspace = true
 axum-server = { workspace = true, features = ["tls-rustls"] }

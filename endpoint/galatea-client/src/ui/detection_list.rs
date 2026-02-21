@@ -1,7 +1,7 @@
 use chrono::Local;
 use iced::widget::{Column, button, column, container, row, scrollable, text, text_input};
 use iced::{Element, Length, Padding, Theme};
-use shared::ipc::{DetectionEvent, Verdict};
+use galatea_shared::ipc::{DetectionEvent, Verdict};
 use std::collections::{HashSet, VecDeque};
 
 use crate::app::Message;

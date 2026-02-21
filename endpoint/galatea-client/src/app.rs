@@ -1,6 +1,6 @@
 use iced::widget::{column, container};
 use iced::{Element, Task, Theme};
-use shared::ipc::{DetectionEvent, IpcMessage};
+use galatea_shared::ipc::{DetectionEvent, IpcMessage};
 use std::collections::{HashSet, VecDeque};
 use iced::futures::stream;
 use std::time::Duration;

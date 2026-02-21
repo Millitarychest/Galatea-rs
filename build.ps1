@@ -5,15 +5,15 @@ param (
 $ErrorActionPreference = "Stop"
 
 # --- CONFIGURATION ---
-$DriverPath = "endpoint\driver"
+$DriverPath = "endpoint\galatea-kernel-sensor"
 $DistEndpointDir = "target\dist\endpoint"
 $DistServerDir = "target\dist\server"
 
-$DriverName = "driver"
-$AgentName = "agent.exe"
-$HookDllName = "hook.dll"
-$GuiName = "client.exe"
-$ServerName = "server.exe"
+$DriverName = "galatea_kernel_sensor"
+$AgentName = "galatea-agent.exe"
+$HookDllName = "galatea_userland_hooks.dll"
+$GuiName = "galatea-client.exe"
+$ServerName = "babel-server.exe"
 
 # Set build paths and flags based on mode
 if ($Release) {
@@ -52,7 +52,7 @@ catch {
 Pop-Location
 
 Write-Host "[>>] Moving and renaming artifact..."
-$DllPath = "$DriverTargetSourceDir\driver_package\*"
+$DllPath = "$DriverTargetSourceDir\galatea_kernel_sensor_package\*"
 
 if (!(Test-Path $DistEndpointDir)) {
     New-Item -ItemType Directory -Force -Path $DistEndpointDir | Out-Null
@@ -70,7 +70,7 @@ if (Test-Path $DllPath) {
 
 Write-Host "`n[i] Starting Galatea Agent Build..." -ForegroundColor Cyan
 Write-Host "[>>] Compiling Agent..."
-Invoke-Expression "cargo build -p agent $CargoProfileFlag"
+Invoke-Expression "cargo build -p galatea-agent $CargoProfileFlag"
 
 $AgentBuildPath = "$GeneralTargetSourceDir\$AgentName"
 $AgentDistPath = "$DistEndpointDir\$AgentName"
@@ -80,7 +80,7 @@ Copy-Item $AgentBuildPath $AgentDistPath -Force
 
 Write-Host "`n[i] Starting Galatea Hooking Dll Build..." -ForegroundColor Cyan
 Write-Host "[>>] Compiling Hook Dll..."
-Invoke-Expression "cargo build -p hook $CargoProfileFlag"
+Invoke-Expression "cargo build -p galatea-userland-hooks $CargoProfileFlag"
 
 $DllBuildPath = "$GeneralTargetSourceDir\$HookDllName"
 $DllDistPath = "$DistEndpointDir\$HookDllName"
@@ -90,7 +90,7 @@ Copy-Item $DllBuildPath $DllDistPath -Force
 
 Write-Host "`n[i] Starting Galatea GUI Build..." -ForegroundColor Cyan
 Write-Host "[>>] Compiling GUI..."
-Invoke-Expression "cargo build -p client $CargoProfileFlag"
+Invoke-Expression "cargo build -p galatea-client $CargoProfileFlag"
 
 $GuiBuildPath = "$GeneralTargetSourceDir\$GuiName"
 $GuiDistPath = "$DistEndpointDir\$GuiName"
@@ -114,7 +114,7 @@ Copy-Item -Path $AssetDir -Destination $DistEndpointDir -Force -Recurse
 
 Write-Host "`n[i] Starting Galatea Server Build..." -ForegroundColor Cyan
 Write-Host "[>>] Compiling Server..."
-Invoke-Expression "cargo build -p server $CargoProfileFlag"
+Invoke-Expression "cargo build -p babel-server $CargoProfileFlag"
 
 if (!(Test-Path $DistServerDir)) {
     New-Item -ItemType Directory -Force -Path $DistServerDir | Out-Null
@@ -125,8 +125,8 @@ $ServerDistPath = "$DistServerDir\$ServerName"
 Copy-Item $ServerBuildPath $ServerDistPath -Force
 
 Write-Host "[>>] Copying server static assets..."
-$ServerStaticDir = "server\server\static"
-$ServerWebDir = "server\server\web"
+$ServerStaticDir = "server\babel-server\static"
+$ServerWebDir = "server\babel-server\web"
 Copy-Item -Path "$ServerStaticDir\*" -Destination $DistServerDir -Force -Recurse
 Copy-Item -Path "$ServerWebDir\*" -Destination "$DistServerDir\web" -Force -Recurse
 

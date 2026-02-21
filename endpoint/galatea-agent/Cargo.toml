@@ -5,8 +5,8 @@ edition = "2024"
 
 [dependencies]
 mimic-core = { workspace = true, features = ["privilege", "logger", "shell"] }
-api-definition = { path = "../../server/api-definition" }
-shared = { path = "../shared", features = ["agent_ipc"] }
+babel-api-definition = { path = "../../server/babel-api-definition" }
+galatea-shared = { path = "../galatea-shared", features = ["agent_ipc"] }
 
 chrono.workspace = true
 ctrlc.workspace = true

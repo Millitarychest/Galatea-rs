@@ -4,8 +4,8 @@ use std::time::SystemTime;
 
 use goblin::pe::PE;
 use mimic_core::{mimic_error, mimic_log};
-use shared::ipc::{AuthenticodeInfo, HeuristicResults, IpcMessage, MlPrediction, SignatureMatch};
-use shared::GalateaEvent;
+use galatea_shared::ipc::{AuthenticodeInfo, HeuristicResults, IpcMessage, MlPrediction, SignatureMatch};
+use galatea_shared::GalateaEvent;
 
 mod authenticode;
 mod heuristics;

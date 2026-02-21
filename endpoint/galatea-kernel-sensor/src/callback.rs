@@ -10,7 +10,7 @@ use wdk_sys::ntddk::{
     DbgPrint,
 };
 
-use shared::GalateaEvent;
+use galatea_shared::GalateaEvent;
 use crate::ioctl::{io_get_current_irp_stack_location,io_set_cancel_routine};
 use crate::utils::is_allowlisted_static;
 use crate::{PENDING_IRP, PENDING_IRP_LOCK, REQUEST_ID_COUNTER, TARGET_LOCK, TARGET_PIDS, QUEUE_LOCK, EVENT_QUEUE,apc};

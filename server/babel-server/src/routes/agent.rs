@@ -1,7 +1,7 @@
 use axum::extract::Path;
 use axum::http::StatusCode;
 use axum::response::Html;
-use api_definition::{TelemetryEvent, TelemetryVerdict};
+use babel_api_definition::{TelemetryEvent, TelemetryVerdict};
 
 use crate::db::agent_db::{get_agent_by_id, AgentInfo};
 use crate::db::telemetry_db;

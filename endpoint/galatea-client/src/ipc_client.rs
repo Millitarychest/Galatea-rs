@@ -1,4 +1,4 @@
-use shared::ipc::{IpcMessage, PIPE_NAME};
+use galatea_shared::ipc::{IpcMessage, PIPE_NAME};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::Duration;

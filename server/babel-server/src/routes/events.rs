@@ -1,5 +1,5 @@
 use axum::{http::StatusCode, response::Html};
-use api_definition::{TelemetryEvent, TelemetryVerdict};
+use babel_api_definition::{TelemetryEvent, TelemetryVerdict};
 
 use super::layout;
 use crate::db::telemetry_db::{self, TelemetryListItem};

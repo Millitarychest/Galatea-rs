@@ -1,4 +1,4 @@
-use api_definition::{AgentAuthentication, AgentHostInfo, AgentRegistration, secrets::Secret};
+use babel_api_definition::{AgentAuthentication, AgentHostInfo, AgentRegistration, secrets::Secret};
 use mimic_core::{error, mimic_log};
 use uuid::Uuid;
 

@@ -2,7 +2,7 @@ use axum::{Json, extract::Path, http::StatusCode};
 use serde_json::{Value, json};
 
 use crate::{config::AGENT_PSK, db, state::AppContext};
-use api_definition::{
+use babel_api_definition::{
     AgentAuthentication, AgentCommandAck, AgentHeartbeat, AgentRegistration, AgentTelemetry,
 };
 

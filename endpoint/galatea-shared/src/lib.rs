@@ -64,6 +64,7 @@ pub mod ipc {
         /// Unique event identifier
         #[cfg(feature = "agent_ipc")]
         pub event_id: Uuid,
+        /// Unique event identifier
         #[cfg(not(feature = "agent_ipc"))]
         pub event_id: String,
 

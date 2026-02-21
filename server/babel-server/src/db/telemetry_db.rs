@@ -1,4 +1,4 @@
-use api_definition::TelemetryEvent;
+use babel_api_definition::TelemetryEvent;
 use mimic_core::error;
 use rusqlite::params;
 

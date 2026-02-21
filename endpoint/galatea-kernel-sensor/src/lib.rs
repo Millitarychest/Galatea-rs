@@ -16,7 +16,7 @@ use wdk_sys::ntddk::{
     DbgPrint, IoCreateSymbolicLink, IoDeleteDevice, IoDeleteSymbolicLink, KeAcquireInStackQueuedSpinLock, KeDelayExecutionThread, KeInitializeSpinLock, KeReleaseInStackQueuedSpinLock, KeSetEvent, ObfDereferenceObject, PsRemoveCreateThreadNotifyRoutine, PsSetCreateProcessNotifyRoutineEx, PsSetCreateThreadNotifyRoutine
 };
 
-use shared::GalateaEvent;
+use galatea_shared::GalateaEvent;
 
 mod ioctl;
 mod callback;

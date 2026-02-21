@@ -20,7 +20,7 @@ use windows::{
 };
 
 use mimic_core::{error, mimic_bail, mimic_error, mimic_log, mimic_success, privilege};
-use shared::{GalateaEvent, IOCTL_GET_EVENT};
+use galatea_shared::{GalateaEvent, IOCTL_GET_EVENT};
 
 mod analyzer;
 mod cache;

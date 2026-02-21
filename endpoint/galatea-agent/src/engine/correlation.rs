@@ -1,7 +1,7 @@
 use chrono::Utc;
 use mimic_core::mimic_log;
-use shared::GalateaVerdict;
-use shared::ipc::{DetectionDetails, DetectionEvent, IpcMessage, ProcessInfo, Verdict};
+use galatea_shared::GalateaVerdict;
+use galatea_shared::ipc::{DetectionDetails, DetectionEvent, IpcMessage, ProcessInfo, Verdict};
 use std::sync::mpsc::Sender;
 use uuid::Uuid;
 

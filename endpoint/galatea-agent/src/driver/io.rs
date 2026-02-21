@@ -1,7 +1,7 @@
 use std::ffi::c_void;
 
 use mimic_core::{mimic_error, mimic_success};
-use shared::{GalateaVerdict, IOCTL_REGISTER_AGENT, IOCTL_SEND_VERDICT};
+use galatea_shared::{GalateaVerdict, IOCTL_REGISTER_AGENT, IOCTL_SEND_VERDICT};
 use windows::Win32::{Foundation::HANDLE, System::IO::DeviceIoControl};
 
 pub fn send_verdict(handle: HANDLE, mut verdict: GalateaVerdict){

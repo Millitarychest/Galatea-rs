@@ -1,5 +1,5 @@
 use mimic_core::{mimic_error, mimic_log};
-use shared::ipc::{IpcMessage, PIPE_BUFFER_SIZE, PIPE_NAME};
+use galatea_shared::ipc::{IpcMessage, PIPE_BUFFER_SIZE, PIPE_NAME};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use windows::Win32::Foundation::{

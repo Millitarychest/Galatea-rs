@@ -1,4 +1,4 @@
-use api_definition::AgentRegistration;
+use babel_api_definition::AgentRegistration;
 use mimic_core::error;
 use rusqlite::{OptionalExtension, Row};
 
