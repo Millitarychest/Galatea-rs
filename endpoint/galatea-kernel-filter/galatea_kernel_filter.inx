@@ -1,0 +1,62 @@
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = "ActivityMonitor"
+ClassGuid   = {b86dff51-a31e-4bac-b3cf-e8cfe75c9fc2}
+Provider    = %ProviderString%
+PnpLockdown = 1
+
+[DestinationDirs]
+MiniFilterDownlevel.CopyDriverFiles  = 12            ;%windir%\system32\drivers
+MiniFilterDownlevel.DelDriverFiles   = 12            ;%windir%\system32\drivers
+MiniFilter.DriverFiles               = 13            ;driver store
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+galatea_kernel_filter.sys = 1,,
+
+; ================= Install Section =================
+
+[DefaultInstall.NT$ARCH$]
+OptionDesc          = %ServiceDescription%
+CopyFiles           = MiniFilter.DriverFiles
+
+; ================= Service Section =================
+[DefaultInstall.NT$ARCH$.Services]
+AddService          = %Galatea.SVCDESC%,,MiniFilter.Service
+
+
+[MiniFilter.Service]
+DisplayName      = %Galatea.SVCDESC%
+Description      = %ServiceDescription%
+ServiceBinary    = %13%\%DriverName%.sys        ;%windir%\system32\drivers\
+Dependencies     = "FltMgr"
+ServiceType      = 2                            ;SERVICE_FILE_SYSTEM_DRIVER
+StartType        = 0                            ;SERVICE_BOOT_START
+ErrorControl     = 1                            ;SERVICE_ERROR_NORMAL
+LoadOrderGroup   = "FSFilter Activity Monitor"
+AddReg           = MiniFilter.AddRegistry
+
+[MiniFilter.AddRegistry]
+HKR,"Parameters\Instances","DefaultInstance",0x00000000,%DefaultInstance%
+HKR,"Parameters\Instances\%Instance1.Name%","Altitude",0x00000000,%Instance1.Altitude%
+HKR,"Parameters\Instances\%Instance1.Name%","Flags",0x00010001,%Instance1.Flags%
+
+
+[MiniFilter.DriverFiles]
+%DriverName%.sys
+
+; ================= Strings Section =================
+
+[Strings]
+ProviderString  = "Mimicry"
+DiskName        = "Galatea Installation Disk"
+ServiceDescription = "Filesystem filter of Galatea EDR"
+Galatea.SVCDESC = "Galatea Kernel Filter"
+DriverName      = "galatea_kernel_filter"
+
+DefaultInstance         = "Galatea Kernel Filter"
+Instance1.Name          = "Galatea Kernel Filter"
+Instance1.Altitude      = "389040"  ; This is the Sentinel One sentinelmonitor.sys Altitude
+Instance1.Flags         = 0x0

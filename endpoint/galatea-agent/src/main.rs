@@ -276,8 +276,9 @@ fn main() -> error::Result<()> {
 }
 
 fn cleanup() {
-    let _ = driver::mgmt::stop_driver_service(DRIVER_SERVICE_NAME);
-    let _ = driver::mgmt::uninstall_driver_service(DRIVER_SERVICE_NAME);
+    return; // As this seems to break, ill remove it until i can come up with a proper way
+    //let _ = driver::mgmt::stop_driver_service(DRIVER_SERVICE_NAME);
+    //let _ = driver::mgmt::uninstall_driver_service(DRIVER_SERVICE_NAME);
 }
 
 fn init_driver() -> error::Result<()> {
@@ -311,7 +312,7 @@ fn init_driver() -> error::Result<()> {
     } else {
         mimic_success!("Driver is already active.");
     }
-
+    
     Ok(())
 }
 

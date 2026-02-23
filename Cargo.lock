@@ -1654,6 +1654,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "galatea-kernel-filter"
+version = "0.1.0"
+dependencies = [
+ "galatea-shared",
+ "wdk",
+ "wdk-alloc",
+ "wdk-build",
+ "wdk-panic",
+ "wdk-sys",
+]
+
+[[package]]
 name = "galatea-kernel-sensor"
 version = "0.1.0"
 dependencies = [

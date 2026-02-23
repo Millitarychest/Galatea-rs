@@ -37,6 +37,6 @@ ServiceBinary  = %13%\galatea_kernel_sensor.sys
 ; ================= Strings Section =================
 
 [Strings]
-ProviderString = "Galatea-RS Project"
+ProviderString = "Mimicry"
 DiskName       = "Galatea Installation Disk"
-Galatea.SVCDESC = "Galatea Kernel Sentinel"
+Galatea.SVCDESC = "Galatea Kernel Sensor"

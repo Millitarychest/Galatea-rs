@@ -9,7 +9,7 @@ members = [
     
     "server/babel-server", 
     "server/babel-api-definition"
-]
+, "endpoint/galatea-kernel-filter"]
 
 [workspace.dependencies]
 async-std = "1.13"
