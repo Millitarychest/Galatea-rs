@@ -71,11 +71,13 @@ fn detection_row<'a>(
                 iced::Color::from_rgb(0.2, 0.8, 0.2) // Green for clean
             }
         }
+        Verdict::SystemAllowed => iced::Color::from_rgb(0.5, 0.6, 0.7), // Neutral blue-gray
     };
 
     let verdict_text = match detection.verdict {
         Verdict::Blocked => "BLOCKED",
         Verdict::Allowed => "ALLOWED",
+        Verdict::SystemAllowed => "SYSTEM",
     };
 
     let row_content = row![

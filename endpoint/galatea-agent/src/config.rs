@@ -7,13 +7,20 @@ pub const AGENT_PSK: &str = "galatea_secret";
 
 // NAMES
 pub const DRIVER_SERVICE_NAME: &str = "Galatea";
-pub const DRIVER_FILE_NAME: &str = "driver.sys";
+pub const DRIVER_FILE_NAME: &str = "galatea_kernel_sensor.sys";
 pub const DB_FILE_NAME: &str = "galatea_dataset.db";
-pub const HOOK_FILE_NAME: &str = "hook.dll";
+pub const HOOK_FILE_NAME: &str = "galatea_userland_hooks.dll";
 
 // ACTION THRESHOLDS
 pub const STAT_BLOCK_THRESHOLD: i32 = 80;
 pub const STAT_SUSPICIOUS_THRESHOLD: i32 = 50;
+/// Maximum seconds to wait for an in-flight scan before falling through.
+/// Must be shorter than the kernel freeze APC timeout (5 s).
+pub const SCAN_WAIT_TIMEOUT_SECS: u64 = 4;
+
+// UI OPTIONS
+/// When true, allowlisted system processes are reported to the UI (no verdict / no scan).
+pub const SHOW_SYSTEM_PROCESSES: bool = true;
 
 // DETECTION THRESHOLDS
 pub const HEUR_ENTROPY_THRESHOLD: f64 = 7.2;

@@ -7,11 +7,11 @@ use uuid::Uuid;
 
 use crate::communication::ipc::SendHandle;
 use crate::probes::process_info;
-use crate::STATIC_RESULT_CACHE;
 use crate::analyzer::AnalysisResult;
-use crate::cache::static_analyzer_cache::StaticResultCache;
 use crate::communication::driver::io::send_verdict;
 
+/// Correlates an analysis result with process metadata, broadcasts the detection
+/// event to IPC clients, and sends the verdict to the kernel driver.
 pub fn correlate_and_broadcast(
     result: AnalysisResult,
     driver: SendHandle,
@@ -40,7 +40,6 @@ pub fn correlate_and_broadcast(
         creation_time: process_info_data.as_ref().and_then(|p| p.creation_time),
     };
 
-    // Build detection details
     let detection = DetectionDetails {
         threat_score: result.threat_score,
         md5_hash: result.md5_hash,
@@ -56,11 +55,6 @@ pub fn correlate_and_broadcast(
         Verdict::Blocked
     };
 
-    if result.size > 0 && !result.skip_cache {
-        let cache = STATIC_RESULT_CACHE.get_or_init(|| StaticResultCache::new());
-        cache.cache_result(&image_path, result.mod_time, result.size, detection.clone());
-    }
-
     let detection_event = DetectionEvent {
         event_id: Uuid::new_v4(),
         timestamp: Utc::now(),
@@ -72,7 +66,7 @@ pub fn correlate_and_broadcast(
     // Broadcast to IPC clients
     if let Some(sender) = ipc_sender {
         if let Err(e) = sender.send(IpcMessage::Detection(detection_event.clone())) {
-            mimic_log!("[Correlation] Failed to send to IPC: {}", e);
+            mimic_log!("[Correlation] Failed to send to IPC: {e}");
         }
     }
 

@@ -179,6 +179,8 @@ pub mod ipc {
         Allowed,
         /// Process creation blocked
         Blocked,
+        /// Allowlisted system process — no scan performed
+        SystemAllowed,
     }
 
     /// IPC message types

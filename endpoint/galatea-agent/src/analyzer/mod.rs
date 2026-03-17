@@ -4,7 +4,7 @@ use std::time::SystemTime;
 
 use goblin::pe::PE;
 use mimic_core::{mimic_error, mimic_log};
-use galatea_shared::ipc::{AuthenticodeInfo, HeuristicResults, IpcMessage, MlPrediction, SignatureMatch};
+use galatea_shared::ipc::{AuthenticodeInfo, DetectionDetails, HeuristicResults, IpcMessage, MlPrediction, SignatureMatch};
 use galatea_shared::GalateaEvent;
 
 mod authenticode;
@@ -17,8 +17,9 @@ mod ml;
 pub use ml::MlEngine;
 
 use crate::{STATIC_RESULT_CACHE, communication::ipc, utils};
-use crate::cache::static_analyzer_cache::StaticResultCache;
+use crate::cache::static_analyzer_cache::{CompletedScan, ScanOutcome, StaticResultCache, WaitResult};
 use crate::engine::correlation::correlate_and_broadcast;
+use crate::probes::file_identity::get_file_index;
 use crate::{
     CODE_SIGN_FORGIVENESS, CODE_SIGN_REVOKED, CODE_SIGN_UNTRUSTED, HOOK_FILE_NAME, ML_CERTAINTY_MAL,
     ML_MALICIOUS,
@@ -39,7 +40,6 @@ pub struct AnalysisResult {
     pub verdict_allow: bool,
     pub size: u64,
     pub mod_time: SystemTime,
-    pub skip_cache: bool,
 }
 
 impl AnalysisResult {
@@ -55,7 +55,6 @@ impl AnalysisResult {
             verdict_allow: true,
             size: 0,
             mod_time: SystemTime::UNIX_EPOCH,
-            skip_cache: false,
         }
     }
 }
@@ -83,37 +82,96 @@ pub fn analyze_event(
     };
 
     if event.frozen {
-        // Check against cache
         let (last_write, file_size) = match fs::metadata(&image_path) {
             Ok(meta) => {
                 let time = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
                 let size = meta.len();
                 (time, size)
             }
-            Err(_) => (SystemTime::UNIX_EPOCH, 0),
-        };
-
-        if file_size > 0 {
-            let cache = STATIC_RESULT_CACHE.get_or_init(|| StaticResultCache::new());
-            if let Some(cache_data) = cache.retrieve_result(&image_path, last_write, file_size) {
-                let allow = cache_data.threat_score <= crate::STAT_BLOCK_THRESHOLD;
-                let result = AnalysisResult {
-                    event,
-                    threat_score: cache_data.threat_score,
-                    md5_hash: cache_data.md5_hash,
-                    signature_match: cache_data.signature_match,
-                    authenticode: cache_data.authenticode,
-                    heuristics: cache_data.heuristics,
-                    ml_prediction: cache_data.ml_prediction,
-                    verdict_allow: allow,
-                    size: file_size,
-                    mod_time: last_write,
-                    skip_cache: true,
-                };
-                mimic_log!("Found cached result");
-                correlate_and_broadcast(result, driver, ipc_sender.as_ref());
+            Err(_) => {
+                // Can't stat the file — fail-closed: block the process.
+                mimic_error!("[SCAN] Failed to stat file, blocking (fail-closed): {image_path}");
+                let mut ctx = AnalysisResult::new(event);
+                ctx.verdict_allow = false;
+                correlate_and_broadcast(ctx, driver, ipc_sender.as_ref());
                 return;
             }
+        };
+
+        // Attempt to reuse a cached or in-flight scan result
+        let scan_guard;
+        if file_size > 0 {
+            let cache = STATIC_RESULT_CACHE.get_or_init(StaticResultCache::new);
+            match cache.try_acquire_scan(&image_path, last_write, file_size) {
+                ScanOutcome::CacheHit(details) => {
+                    let allow = details.threat_score <= crate::STAT_BLOCK_THRESHOLD;
+                    let result = build_result_from_details(event, details, allow, file_size, last_write);
+                    mimic_log!("[CACHE] Reusing cached result for {image_path}");
+                    correlate_and_broadcast(result, driver, ipc_sender.as_ref());
+                    return;
+                }
+                ScanOutcome::Wait(barrier) => {
+                    mimic_log!("[SCAN] Coalesced with in-flight scan for {image_path}");
+                    match barrier.wait() {
+                        WaitResult::Completed(scan) => {
+                            let allow = scan.details.threat_score <= crate::STAT_BLOCK_THRESHOLD;
+                            let result = build_result_from_details(
+                                event, scan.details, allow, scan.file_size, scan.mod_time,
+                            );
+                            correlate_and_broadcast(result, driver, ipc_sender.as_ref());
+                            return;
+                        }
+                        // Timed out or failed — re-acquire a fresh scan slot
+                        WaitResult::Failed | WaitResult::Timeout => {
+                            mimic_log!("[SCAN] In-flight scan failed/timed out, re-acquiring scan slot");
+                            match cache.try_acquire_scan(&image_path, last_write, file_size) {
+                                ScanOutcome::CacheHit(details) => {
+                                    // Original owner finished between our timeout and re-acquire
+                                    let allow = details.threat_score <= crate::STAT_BLOCK_THRESHOLD;
+                                    let result = build_result_from_details(
+                                        event, details, allow, file_size, last_write,
+                                    );
+                                    correlate_and_broadcast(result, driver, ipc_sender.as_ref());
+                                    return;
+                                }
+                                ScanOutcome::Acquired(guard) => {
+                                    scan_guard = guard;
+                                }
+                                ScanOutcome::Wait(barrier2) => {
+                                    // Another thread beat us — wait once more, then fail-closed
+                                    match barrier2.wait() {
+                                        WaitResult::Completed(scan) => {
+                                            let allow = scan.details.threat_score <= crate::STAT_BLOCK_THRESHOLD;
+                                            let result = build_result_from_details(
+                                                event, scan.details, allow, scan.file_size, scan.mod_time,
+                                            );
+                                            correlate_and_broadcast(result, driver, ipc_sender.as_ref());
+                                            return;
+                                        }
+                                        WaitResult::Failed | WaitResult::Timeout => {
+                                            mimic_error!("[SCAN] Double wait failure, blocking (fail-closed): {image_path}");
+                                            let mut ctx = AnalysisResult::new(event);
+                                            ctx.verdict_allow = false;
+                                            correlate_and_broadcast(ctx, driver, ipc_sender.as_ref());
+                                            return;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                ScanOutcome::Acquired(guard) => {
+                    scan_guard = guard;
+                }
+            }
+        } else {
+            // Zero-size file — fail-closed
+            mimic_error!("[SCAN] Zero-size file, blocking (fail-closed): {image_path}");
+            let mut ctx = AnalysisResult::new(event);
+            ctx.verdict_allow = false;
+            correlate_and_broadcast(ctx, driver, ipc_sender.as_ref());
+            return;
         }
 
         let mut ctx = AnalysisResult::new(event);
@@ -128,6 +186,16 @@ pub fn analyze_event(
 
         let file_buffer = fs::read(&image_path).ok();
         let file_pe = file_buffer.as_ref().and_then(|buf| PE::parse(buf).ok());
+
+        // If file is unreadable, the guard drops and aborts the in-progress slot.
+        // Fail-closed: block the process.
+        if file_buffer.is_none() {
+            mimic_error!("[SCAN] Failed to read file, blocking (fail-closed): {image_path}");
+            ctx.verdict_allow = false;
+            drop(scan_guard);
+            correlate_and_broadcast(ctx, driver, ipc_sender.as_ref());
+            return;
+        }
 
         let stages: &[&dyn Fn(&mut AnalysisResult) -> StageOutcome] = &[
             &|ctx| stage_signature_check(ctx, &db_pool, &image_path),
@@ -149,6 +217,21 @@ pub fn analyze_event(
             }
         }
 
+        // Promote result into cache and wake any waiters
+        scan_guard.complete(CompletedScan {
+            details: DetectionDetails {
+                threat_score: ctx.threat_score,
+                md5_hash: ctx.md5_hash.clone(),
+                signature_match: ctx.signature_match.clone(),
+                authenticode: ctx.authenticode.clone(),
+                heuristics: ctx.heuristics.clone(),
+                ml_prediction: ctx.ml_prediction.clone(),
+            },
+            mod_time: last_write,
+            file_size,
+            file_index: get_file_index(&image_path),
+        });
+
         // Inject hook DLL if process was allowed
         if ctx.verdict_allow {
             let current_dir = utils::exe_directory();
@@ -156,12 +239,11 @@ pub fn analyze_event(
             match dll_path.to_str() {
                 Some(path) => match inject_dll(ctx.event.process_id as u64, path) {
                     Ok(_) => mimic_log!("injected"),
-                    Err(e) => mimic_error!("Inject failed: {}", e),
+                    Err(e) => mimic_error!("Inject failed: {e}"),
                 },
                 None => {
                     mimic_error!(
-                        "Skipping hook injection due to non-UTF8 DLL path: {:?}",
-                        dll_path
+                        "Skipping hook injection due to non-UTF8 DLL path: {dll_path:?}"
                     );
                 }
             }
@@ -174,9 +256,73 @@ pub fn analyze_event(
             event.process_id,
             image_path
         );
+
+        // Optionally report system processes to the UI (no verdict, no scan)
+        if crate::SHOW_SYSTEM_PROCESSES {
+            if let Some(ref sender) = ipc_sender {
+                let process_info_data = crate::probes::process_info::get_process_info(event.process_id);
+
+                let process_info = galatea_shared::ipc::ProcessInfo {
+                    pid: event.process_id,
+                    name: process_info_data
+                        .as_ref()
+                        .map(|p| p.name.clone())
+                        .unwrap_or_else(|| "Unknown".to_string()),
+                    path: process_info_data
+                        .as_ref()
+                        .map(|p| p.path.clone())
+                        .unwrap_or(image_path.clone()),
+                    parent_pid: process_info_data.as_ref().and_then(|p| p.parent_pid),
+                    command_line: process_info_data
+                        .as_ref()
+                        .and_then(|p| p.command_line.clone()),
+                    creation_time: process_info_data.as_ref().and_then(|p| p.creation_time),
+                };
+
+                let detection_event = galatea_shared::ipc::DetectionEvent {
+                    event_id: uuid::Uuid::new_v4(),
+                    timestamp: chrono::Utc::now(),
+                    process_info,
+                    detection: DetectionDetails {
+                        threat_score: 0,
+                        md5_hash: None,
+                        signature_match: None,
+                        authenticode: None,
+                        heuristics: None,
+                        ml_prediction: None,
+                    },
+                    verdict: galatea_shared::ipc::Verdict::SystemAllowed,
+                };
+
+                if let Err(e) = sender.send(IpcMessage::Detection(detection_event)) {
+                    mimic_error!("[FAST] Failed to send system process to IPC: {e}");
+                }
+            }
+        }
     }
 }
 
+/// Builds an `AnalysisResult` from cached `DetectionDetails` without re-scanning.
+fn build_result_from_details(
+    event: GalateaEvent,
+    details: DetectionDetails,
+    allow: bool,
+    size: u64,
+    mod_time: SystemTime,
+) -> AnalysisResult {
+    AnalysisResult {
+        event,
+        threat_score: details.threat_score,
+        md5_hash: details.md5_hash,
+        signature_match: details.signature_match,
+        authenticode: details.authenticode,
+        heuristics: details.heuristics,
+        ml_prediction: details.ml_prediction,
+        verdict_allow: allow,
+        size,
+        mod_time,
+    }
+}
 
 fn stage_signature_check(
     ctx: &mut AnalysisResult,
