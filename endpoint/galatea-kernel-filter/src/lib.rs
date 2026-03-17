@@ -8,8 +8,8 @@ extern crate alloc;
 extern crate wdk_panic;
 
 mod ffi;
+mod callbacks;
 
-use core::ffi::c_void;
 use core::mem::zeroed;
 use core::ptr::null_mut;
 
@@ -20,12 +20,12 @@ use wdk_sys::{
 };
 
 use crate::ffi::flt::{
-    FLT_CALLBACK_DATA, FLT_OPERATION_REGISTRATION, FLT_POSTOP_CALLBACK_STATUS,
-    FLT_POSTOP_FINISHED_PROCESSING, FLT_PREOP_CALLBACK_STATUS, FLT_PREOP_SUCCESS_NO_CALLBACK,
-    FLT_PREOP_SUCCESS_WITH_CALLBACK, FLT_REGISTRATION, FLT_REGISTRATION_VERSION,
-    FLT_RELATED_OBJECTS, FltRegisterFilter, FltStartFiltering, FltUnregisterFilter,
-    IRP_MJ_OPERATION_END, PFLT_FILTER,
+    FLT_OPERATION_REGISTRATION, FLT_REGISTRATION, FLT_REGISTRATION_VERSION,
+    FltRegisterFilter, FltStartFiltering, FltUnregisterFilter,
+    IRP_MJ_OPERATION_END, PfltFilter,
 };
+
+use crate::callbacks::fs_callbacks;
 
 #[cfg(not(test))]
 use wdk_alloc::WdkAllocator;
@@ -36,98 +36,8 @@ static GLOBAL_ALLOCATOR: WdkAllocator = WdkAllocator;
 // ---- Globals ----
 
 /// Handle returned by `FltRegisterFilter`, needed for teardown.
-// Safety: only written in `DriverEntry` (single-threaded at PASSIVE_LEVEL)
-// and read/cleared in `filter_unload` (serialised by FltMgr).
-static mut FILTER_HANDLE: PFLT_FILTER = null_mut();
+static mut FILTER_HANDLE: PfltFilter = null_mut();
 
-// ---- Pre/Post operation callbacks ----
-
-/// Pre-create callback: logs every file open and allows it.
-///
-/// Returns [`FLT_PREOP_SUCCESS_WITH_CALLBACK`] so that [`post_create`] fires.
-unsafe extern "C" fn pre_create(
-    _data: *mut FLT_CALLBACK_DATA,
-    flt_objects: *const FLT_RELATED_OBJECTS,
-    _completion_context: *mut *mut c_void,
-) -> FLT_PREOP_CALLBACK_STATUS {
-    // Safety: flt_objects and its file_object are guaranteed valid by FltMgr
-    // for the duration of this callback.
-    unsafe {
-        let file_obj = (*flt_objects).file_object;
-        if !file_obj.is_null() && !(*file_obj).FileName.Buffer.is_null() {
-            DbgPrint(
-                b"GalateaFlt: [CREATE] %wZ\n\0".as_ptr() as *const i8,
-                &(*file_obj).FileName,
-            );
-        }
-    }
-    FLT_PREOP_SUCCESS_WITH_CALLBACK
-}
-
-/// Post-create callback: logs creates that completed.
-unsafe extern "C" fn post_create(
-    data: *mut FLT_CALLBACK_DATA,
-    flt_objects: *const FLT_RELATED_OBJECTS,
-    _completion_context: *mut c_void,
-    _flags: u32,
-) -> FLT_POSTOP_CALLBACK_STATUS {
-    // Safety: data and flt_objects are valid for the lifetime of this callback.
-    unsafe {
-        let status = (*data).io_status.__bindgen_anon_1.Status;
-        if status != STATUS_SUCCESS {
-            let file_obj = (*flt_objects).file_object;
-            if !file_obj.is_null() && !(*file_obj).FileName.Buffer.is_null() {
-                DbgPrint(
-                    b"GalateaFlt: [CREATE-FAIL] %wZ status=0x%08x\n\0".as_ptr() as *const i8,
-                    &(*file_obj).FileName,
-                    status,
-                );
-            }
-        }
-    }
-    FLT_POSTOP_FINISHED_PROCESSING
-}
-
-/// Pre-write callback: logs write operations.
-unsafe extern "C" fn pre_write(
-    _data: *mut FLT_CALLBACK_DATA,
-    flt_objects: *const FLT_RELATED_OBJECTS,
-    _completion_context: *mut *mut c_void,
-) -> FLT_PREOP_CALLBACK_STATUS {
-    // Safety: flt_objects is valid for the lifetime of this callback.
-    unsafe {
-        let file_obj = (*flt_objects).file_object;
-        if !file_obj.is_null() && !(*file_obj).FileName.Buffer.is_null() {
-            DbgPrint(
-                b"GalateaFlt: [WRITE] %wZ\n\0".as_ptr() as *const i8,
-                &(*file_obj).FileName,
-            );
-        }
-    }
-    FLT_PREOP_SUCCESS_NO_CALLBACK
-}
-
-/// Pre-set-information callback: catches rename and delete operations.
-///
-/// `IRP_MJ_SET_INFORMATION` covers `FileRenameInformation`,
-/// `FileDispositionInformation`, and similar file metadata changes.
-unsafe extern "C" fn pre_set_info(
-    _data: *mut FLT_CALLBACK_DATA,
-    flt_objects: *const FLT_RELATED_OBJECTS,
-    _completion_context: *mut *mut c_void,
-) -> FLT_PREOP_CALLBACK_STATUS {
-    // Safety: flt_objects is valid for the lifetime of this callback.
-    unsafe {
-        let file_obj = (*flt_objects).file_object;
-        if !file_obj.is_null() && !(*file_obj).FileName.Buffer.is_null() {
-            DbgPrint(
-                b"GalateaFlt: [SET_INFO] %wZ\n\0".as_ptr() as *const i8,
-                &(*file_obj).FileName,
-            );
-        }
-    }
-    FLT_PREOP_SUCCESS_NO_CALLBACK
-}
 
 // ---- Filter unload ----
 
@@ -165,25 +75,24 @@ pub extern "C" fn DriverEntry(
             FLT_OPERATION_REGISTRATION {
                 major_function: IRP_MJ_CREATE as u8,
                 flags: 0,
-                pre_operation: Some(pre_create),
-                post_operation: Some(post_create),
+                pre_operation: Some(fs_callbacks::pre_create),
+                post_operation: Some(fs_callbacks::post_create),
                 reserved1: null_mut(),
             },
             FLT_OPERATION_REGISTRATION {
                 major_function: IRP_MJ_WRITE as u8,
                 flags: 0,
-                pre_operation: Some(pre_write),
+                pre_operation: Some(fs_callbacks::pre_write),
                 post_operation: None,
                 reserved1: null_mut(),
             },
             FLT_OPERATION_REGISTRATION {
                 major_function: IRP_MJ_SET_INFORMATION as u8,
                 flags: 0,
-                pre_operation: Some(pre_set_info),
+                pre_operation: Some(fs_callbacks::pre_set_info),
                 post_operation: None,
                 reserved1: null_mut(),
             },
-            // Sentinel — end of array
             FLT_OPERATION_REGISTRATION {
                 major_function: IRP_MJ_OPERATION_END,
                 flags: 0,

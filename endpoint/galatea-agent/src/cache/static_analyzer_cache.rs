@@ -1,4 +1,4 @@
-use std::time::SystemTime;
+use std::{sync::Arc, time::SystemTime};
 
 use mimic_core::mimic_log;
 use galatea_shared::ipc::DetectionDetails;
@@ -11,6 +11,12 @@ struct CacheItemData {
     file_size: u64,
     file_index: Option<u64>,
     details: DetectionDetails,
+}
+
+#[derive(Clone)]
+enum CacheEntry {
+    InProgress(Arc<>),
+    Complete(CacheItemData)
 }
 
 pub struct StaticResultCache {

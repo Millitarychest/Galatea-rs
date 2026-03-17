@@ -26,19 +26,17 @@ mod analyzer;
 mod cache;
 mod config;
 mod db;
-mod driver;
 mod engine;
 mod injector;
-mod ipc;
 mod logger;
 mod probes;
 mod utils;
-mod network;
+mod communication;
 
 use crate::{
-    analyzer::{MlEngine, PackerSignatureEngine}, ipc::SendHandle,
+    analyzer::{MlEngine, PackerSignatureEngine}, communication::ipc::SendHandle,
 };
-use crate::{cache::static_analyzer_cache::StaticResultCache, ipc::ipc_server::IpcServer};
+use crate::{cache::static_analyzer_cache::StaticResultCache, communication::ipc::ipc_server::IpcServer};
 pub use config::*;
 
 static GLOBAL_LISTENER_HANDLE: AtomicUsize = AtomicUsize::new(0);
@@ -202,7 +200,7 @@ fn main() -> error::Result<()> {
 
     GLOBAL_LISTENER_HANDLE.store(listener_handle.0 as usize, Ordering::SeqCst);
 
-    if let Err(_) = driver::io::register_agent(control_handle) {
+    if let Err(_) = communication::driver::io::register_agent(control_handle) {
         mimic_error!("CRITICAL: Agent Registration Failed.");
         mimic_error!("This usually means another Agent instance is already running.");
         let _ = unsafe { CloseHandle(listener_handle) };
@@ -221,7 +219,7 @@ fn main() -> error::Result<()> {
 
     // register
 
-    if let Err(e) = network::server::register_with_server(config::SERVER_URI) {
+    if let Err(e) = communication::network::server::register_with_server(config::SERVER_URI) {
         mimic_error!("Failed to register with server: {}", e);
     }
 
@@ -302,13 +300,13 @@ fn init_driver() -> error::Result<()> {
     let driver_path = resolve_driver_path()?;
     mimic_log!("Driver Artifact: {:?}", driver_path);
 
-    if !driver::mgmt::service_exists(DRIVER_SERVICE_NAME) {
-        driver::mgmt::install_driver_service(DRIVER_SERVICE_NAME, &driver_path)?;
+    if !communication::driver::mgmt::service_exists(DRIVER_SERVICE_NAME) {
+        communication::driver::mgmt::install_driver_service(DRIVER_SERVICE_NAME, &driver_path)?;
     }
 
-    if !driver::mgmt::is_service_running(DRIVER_SERVICE_NAME) {
+    if !communication::driver::mgmt::is_service_running(DRIVER_SERVICE_NAME) {
         mimic_log!("Starting Driver Service...");
-        driver::mgmt::start_driver_service(DRIVER_SERVICE_NAME)?;
+        communication::driver::mgmt::start_driver_service(DRIVER_SERVICE_NAME)?;
     } else {
         mimic_success!("Driver is already active.");
     }

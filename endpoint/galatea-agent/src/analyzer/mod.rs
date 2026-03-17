@@ -16,7 +16,7 @@ pub use packers::PackerSignatureEngine;
 mod ml;
 pub use ml::MlEngine;
 
-use crate::{STATIC_RESULT_CACHE, ipc, utils};
+use crate::{STATIC_RESULT_CACHE, communication::ipc, utils};
 use crate::cache::static_analyzer_cache::StaticResultCache;
 use crate::engine::correlation::correlate_and_broadcast;
 use crate::{

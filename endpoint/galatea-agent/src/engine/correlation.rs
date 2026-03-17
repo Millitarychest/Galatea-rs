@@ -5,12 +5,12 @@ use galatea_shared::ipc::{DetectionDetails, DetectionEvent, IpcMessage, ProcessI
 use std::sync::mpsc::Sender;
 use uuid::Uuid;
 
-use crate::ipc::SendHandle;
+use crate::communication::ipc::SendHandle;
 use crate::probes::process_info;
 use crate::STATIC_RESULT_CACHE;
 use crate::analyzer::AnalysisResult;
 use crate::cache::static_analyzer_cache::StaticResultCache;
-use crate::driver::io::send_verdict;
+use crate::communication::driver::io::send_verdict;
 
 pub fn correlate_and_broadcast(
     result: AnalysisResult,

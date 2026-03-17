@@ -1,4 +1,4 @@
-//! Manual FFI bindings for `fltKernel.h` minifilter types and functions.
+//! FFI bindings for `fltKernel.h` minifilter types and functions.
 //!
 //! `wdk-sys` 0.5.1 does not generate bindings for the Filter Manager API.
 //! These declarations are the minimal subset needed to register a basic
@@ -7,33 +7,33 @@
 //! Layout and values are taken directly from the Windows 10 26100 WDK headers.
 
 use core::ffi::c_void;
-use wdk_sys::{DRIVER_OBJECT, FILE_OBJECT, IO_STATUS_BLOCK, NTSTATUS, UNICODE_STRING};
+use wdk_sys::{DRIVER_OBJECT, FILE_OBJECT, IO_STATUS_BLOCK, NTSTATUS};
 
 // ---- Opaque handles ----
 
 /// Opaque filter handle returned by [`FltRegisterFilter`].
-pub type PFLT_FILTER = *mut c_void;
+pub type PfltFilter = *mut c_void;
 
 // ---- Callback return types ----
 
 /// Return type for pre-operation callbacks.
-pub type FLT_PREOP_CALLBACK_STATUS = i32;
+pub type FltPreopCallbackStatus = i32;
 
 /// Return type for post-operation callbacks.
-pub type FLT_POSTOP_CALLBACK_STATUS = i32;
+pub type FltPostopCallbackStatus = i32;
 
 /// Allow the I/O and invoke the matching post-operation callback.
-pub const FLT_PREOP_SUCCESS_WITH_CALLBACK: FLT_PREOP_CALLBACK_STATUS = 0;
+pub const FLT_PREOP_SUCCESS_WITH_CALLBACK: FltPreopCallbackStatus = 0;
 
 /// Allow the I/O, skip the post-operation callback.
-pub const FLT_PREOP_SUCCESS_NO_CALLBACK: FLT_PREOP_CALLBACK_STATUS = 1;
+pub const FLT_PREOP_SUCCESS_NO_CALLBACK: FltPreopCallbackStatus = 1;
 
 /// Post-operation processing is complete.
-pub const FLT_POSTOP_FINISHED_PROCESSING: FLT_POSTOP_CALLBACK_STATUS = 0;
+pub const FLT_POSTOP_FINISHED_PROCESSING: FltPostopCallbackStatus = 0;
 
 // ---- Constants ----
 
-/// Sentinel marking the end of a [`FLT_OPERATION_REGISTRATION`] array.
+/// Marks the end of a [`FLT_OPERATION_REGISTRATION`] array.
 pub const IRP_MJ_OPERATION_END: u8 = 0x80;
 
 /// Version value for [`FLT_REGISTRATION::version`].
@@ -42,26 +42,26 @@ pub const FLT_REGISTRATION_VERSION: u16 = 0x0203;
 // ---- Callback signatures ----
 
 /// Pre-operation callback function pointer.
-pub type PFLT_PRE_OPERATION_CALLBACK = Option<
+pub type PfltPreOperationCallback = Option<
     unsafe extern "C" fn(
         data: *mut FLT_CALLBACK_DATA,
         flt_objects: *const FLT_RELATED_OBJECTS,
         completion_context: *mut *mut c_void,
-    ) -> FLT_PREOP_CALLBACK_STATUS,
+    ) -> FltPreopCallbackStatus,
 >;
 
 /// Post-operation callback function pointer.
-pub type PFLT_POST_OPERATION_CALLBACK = Option<
+pub type PfltPostOperationCallback = Option<
     unsafe extern "C" fn(
         data: *mut FLT_CALLBACK_DATA,
         flt_objects: *const FLT_RELATED_OBJECTS,
         completion_context: *mut c_void,
         flags: u32,
-    ) -> FLT_POSTOP_CALLBACK_STATUS,
+    ) -> FltPostopCallbackStatus,
 >;
 
 /// Filter-unload callback function pointer.
-pub type PFLT_FILTER_UNLOAD_CALLBACK = Option<unsafe extern "C" fn(flags: u32) -> NTSTATUS>;
+pub type PfltFilterUnloadCallback = Option<unsafe extern "C" fn(flags: u32) -> NTSTATUS>;
 
 // ---- Structures ----
 
@@ -76,9 +76,9 @@ pub struct FLT_OPERATION_REGISTRATION {
     /// Combination of `FLTFL_OPERATION_REGISTRATION_*` flags.
     pub flags: u32,
     /// Called before the I/O is sent to the file system.
-    pub pre_operation: PFLT_PRE_OPERATION_CALLBACK,
+    pub pre_operation: PfltPreOperationCallback,
     /// Called after the I/O completes (if pre returned `..WITH_CALLBACK`).
-    pub post_operation: PFLT_POST_OPERATION_CALLBACK,
+    pub post_operation: PfltPostOperationCallback,
     /// Reserved — must be `null_mut()`.
     pub reserved1: *mut c_void,
 }
@@ -105,7 +105,7 @@ pub struct FLT_REGISTRATION {
     /// Required pointer to the operation-callback array.
     pub operation_registration: *const FLT_OPERATION_REGISTRATION,
     /// Called when the filter is being unloaded.
-    pub filter_unload_callback: PFLT_FILTER_UNLOAD_CALLBACK,
+    pub filter_unload_callback: PfltFilterUnloadCallback,
     /// Instance setup callback (null if unused).
     pub instance_setup_callback: *const c_void,
     /// Instance query-teardown callback (null if unused).
@@ -190,12 +190,12 @@ unsafe extern "C" {
     pub fn FltRegisterFilter(
         driver: *mut DRIVER_OBJECT,
         registration: *const FLT_REGISTRATION,
-        ret_filter: *mut PFLT_FILTER,
+        ret_filter: *mut PfltFilter,
     ) -> NTSTATUS;
 
     /// Tells the Filter Manager to begin sending I/O to the filter.
-    pub fn FltStartFiltering(filter: PFLT_FILTER) -> NTSTATUS;
+    pub fn FltStartFiltering(filter: PfltFilter) -> NTSTATUS;
 
     /// Unregisters a previously registered minifilter.
-    pub fn FltUnregisterFilter(filter: PFLT_FILTER);
+    pub fn FltUnregisterFilter(filter: PfltFilter);
 }
