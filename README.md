@@ -46,6 +46,8 @@ To stop the EDR:
 > This projected was supported by Ai for the following parts:
 > - Machine learning 
 > - Gui
+> - Documentation
+> - FFI declarations
 
 
 ### Credits
