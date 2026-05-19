@@ -7,8 +7,8 @@ use uuid::Uuid;
 
 use crate::communication::ipc::SendHandle;
 use crate::probes::process_info;
-use crate::analyzer::AnalysisResult;
-use crate::communication::driver::io::send_verdict;
+use crate::static_analyzer::AnalysisResult;
+use crate::communication::driver::io::ks_send_verdict;
 
 /// Correlates an analysis result with process metadata, broadcasts the detection
 /// event to IPC clients, and sends the verdict to the kernel driver.
@@ -75,5 +75,5 @@ pub fn correlate_and_broadcast(
         request_id: result.event.request_id,
         allow: result.verdict_allow,
     };
-    send_verdict(driver.into(), driver_verdict);
+    ks_send_verdict(driver.into(), driver_verdict);
 }

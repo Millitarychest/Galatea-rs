@@ -288,6 +288,7 @@ impl StaticResultCache {
     }
 
     /// Removes a specific completed entry from the cache.
+    #[expect(dead_code)] // Prepared for future use
     pub fn invalidate_result(&self, raw_path: &str) {
         let key = Self::canonicalize_key(raw_path);
         self.completed.invalidate(&key);

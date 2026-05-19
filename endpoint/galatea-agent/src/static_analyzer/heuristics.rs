@@ -3,7 +3,7 @@ use md5::{Digest, Md5};
 
 use crate::{
     HEUR_ENTROPY_SCORE, HEUR_ENTROPY_THRESHOLD, HEUR_HIDDEN_IMP_SCORE, HEUR_KNOWN_PACKER_SCORE, HEUR_RWX_SEC_SCORE, 
-    analyzer::PackerSignatureEngine,
+    static_analyzer::PackerSignatureEngine,
     utils::math::calculate_entropy
 };
 

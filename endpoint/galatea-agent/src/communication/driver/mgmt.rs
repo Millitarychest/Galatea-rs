@@ -41,6 +41,7 @@ pub fn start_driver_service(name: &str) -> Result<(), String> {
     }
 }
 
+#[expect(dead_code)]//Old function will probably be reworked but not sure yet
 pub fn stop_driver_service(name: &str) -> Result<(), String> {
     mimic_log!("Stopping Service: {}", name);
     match shell::run(&format!("sc stop {}", name)) {
@@ -55,6 +56,7 @@ pub fn stop_driver_service(name: &str) -> Result<(), String> {
     }
 }
 
+#[expect(dead_code)] //Old function will probably be reworked but not sure yet
 pub fn uninstall_driver_service(name: &str) -> Result<(), String> {
     mimic_log!("Removing Service: {}", name);
     match shell::run(&format!("sc delete {}", name)) {

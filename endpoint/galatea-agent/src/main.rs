@@ -22,7 +22,7 @@ use windows::{
 use mimic_core::{error, mimic_bail, mimic_error, mimic_log, mimic_success, privilege};
 use galatea_shared::{GalateaEvent, IOCTL_GET_EVENT};
 
-mod analyzer;
+mod static_analyzer;
 mod cache;
 mod config;
 mod db;
@@ -34,7 +34,7 @@ mod utils;
 mod communication;
 
 use crate::{
-    analyzer::{MlEngine, PackerSignatureEngine}, communication::ipc::SendHandle,
+    static_analyzer::{MlEngine, PackerSignatureEngine}, communication::ipc::SendHandle,
 };
 use crate::{cache::static_analyzer_cache::StaticResultCache, communication::ipc::ipc_server::IpcServer};
 pub use config::*;
@@ -200,7 +200,7 @@ fn main() -> error::Result<()> {
 
     GLOBAL_LISTENER_HANDLE.store(listener_handle.0 as usize, Ordering::SeqCst);
 
-    if let Err(_) = communication::driver::io::register_agent(control_handle) {
+    if let Err(_) = communication::driver::io::ks_register_agent(control_handle) {
         mimic_error!("CRITICAL: Agent Registration Failed.");
         mimic_error!("This usually means another Agent instance is already running.");
         let _ = unsafe { CloseHandle(listener_handle) };
@@ -250,7 +250,7 @@ fn main() -> error::Result<()> {
                 let worker_event = event;
 
                 worker_pool.execute(move || {
-                    analyzer::analyze_event(
+                    static_analyzer::analyze_event(
                         worker_event,
                         worker_handle,
                         worker_db,

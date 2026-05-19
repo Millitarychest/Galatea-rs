@@ -23,7 +23,7 @@ use crate::probes::file_identity::get_file_index;
 use crate::{
     CODE_SIGN_FORGIVENESS, CODE_SIGN_REVOKED, CODE_SIGN_UNTRUSTED, HOOK_FILE_NAME, ML_CERTAINTY_MAL,
     ML_MALICIOUS,
-    analyzer::authenticode::verify_signature,
+    static_analyzer::authenticode::verify_signature,
     db::{self, DbPool, IocType},
     injector::inject_dll,
     utils::hashing::calc_md5,
@@ -59,6 +59,7 @@ impl AnalysisResult {
     }
 }
 
+#[expect(dead_code)] //Allow verdict not used in current iteration but will be needed
 enum StageOutcome {
     Continue,
     Block,
@@ -204,6 +205,7 @@ pub fn analyze_event(
             &|ctx| {
                 stage_heuristic_check(ctx, &pack_engine, file_buffer.as_deref(), file_pe.as_ref())
             },
+            //TODO: Emulation stage
         ];
 
         for stage in stages {
