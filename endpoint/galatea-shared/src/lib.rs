@@ -39,6 +39,42 @@ pub struct GalateaVerdict {
     pub allow: bool,
 }
 
+
+// Agent and Filter
+/// Module Containing the IOCTL structures used to communicate between the Kernel and Agent
+pub mod filter_ioctl {
+
+    /// Struct used to send File System Events via IOCTL
+    #[repr(C)]
+    pub struct GalateaFSEvent {
+        /// Process ID
+        pub process_id: u64,
+        /// Request ID used for tracking of verdicts in kernel mode
+        pub request_id: u64,
+        /// Type of the File System Event
+        pub event_type: FSEventType,
+        /// Targeted File Path
+        pub file_path: [u16; 260],
+    }
+
+    /// Enum used to represent the different actions that might be taken on a File
+    #[repr(C)]
+    pub enum FSEventType {
+        /// A file handle was opened
+        FileOpen,
+        /// A file was created
+        FileCreate,
+        /// A file was written to
+        FileWrite,
+        /// A file was renamed or its Metadata was changed
+        FileModify,
+        /// A file was marked for deletion
+        FileDelete
+    }
+
+}
+
+
 // Agent and Client
 /// Module containing usermode IPC definitions
 #[cfg(any(feature = "client_ipc", feature = "agent_ipc"))]
