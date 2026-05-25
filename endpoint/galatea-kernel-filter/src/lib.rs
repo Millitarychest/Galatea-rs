@@ -9,6 +9,7 @@ extern crate wdk_panic;
 
 mod ffi;
 mod callbacks;
+mod io;
 
 use core::mem::zeroed;
 use core::ptr::null_mut;
@@ -36,7 +37,7 @@ static GLOBAL_ALLOCATOR: WdkAllocator = WdkAllocator;
 // ---- Globals ----
 
 /// Handle returned by `FltRegisterFilter`, needed for teardown.
-static mut FILTER_HANDLE: PfltFilter = null_mut();
+pub(crate) static mut FILTER_HANDLE: PfltFilter = null_mut();
 
 
 // ---- Filter unload ----
@@ -48,6 +49,7 @@ unsafe extern "C" fn filter_unload(_flags: u32) -> NTSTATUS {
     unsafe {
         DbgPrint(b"GalateaFlt: Unloading filter...\n\0".as_ptr() as *const i8);
         if !FILTER_HANDLE.is_null() {
+            io::filter_port::teardown_port(FILTER_HANDLE);
             FltUnregisterFilter(FILTER_HANDLE);
             FILTER_HANDLE = null_mut();
         }
@@ -119,12 +121,24 @@ pub extern "C" fn DriverEntry(
         }
         DbgPrint(b"GalateaFlt: Filter registered successfully\n\0".as_ptr() as *const i8);
 
+        status = io::filter_port::initialize_port(FILTER_HANDLE);
+        if status != STATUS_SUCCESS {
+            DbgPrint(
+                b"GalateaFlt: initialize_port FAILED 0x%08x\n\0".as_ptr() as *const i8,
+                status,
+            );
+            FltUnregisterFilter(FILTER_HANDLE);
+            FILTER_HANDLE = null_mut();
+            return status;
+        }
+
         status = FltStartFiltering(FILTER_HANDLE);
         if status != STATUS_SUCCESS {
             DbgPrint(
                 b"GalateaFlt: FltStartFiltering FAILED 0x%08x\n\0".as_ptr() as *const i8,
                 status,
             );
+            io::filter_port::teardown_port(FILTER_HANDLE);
             FltUnregisterFilter(FILTER_HANDLE);
             FILTER_HANDLE = null_mut();
             return status;

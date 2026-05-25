@@ -1,8 +1,15 @@
+///! Module describes helper functions for communicating with Kernel mode, 
+///! mainly targeting the Galatea FS filter and Kernel Sensor
+///! public interfaces should be prefixed with "kf_" for kernel filter or
+///! public interfaces should be prefixed with "ks_" for kernel sensor
+
 use std::ffi::c_void;
 
 use mimic_core::{mimic_error, mimic_success};
 use galatea_shared::{GalateaVerdict, IOCTL_REGISTER_AGENT, IOCTL_SEND_VERDICT};
 use windows::Win32::{Foundation::HANDLE, System::IO::DeviceIoControl};
+
+use windows::Win32::Storage::InstallableFileSystems;
 
 pub fn ks_send_verdict(handle: HANDLE, mut verdict: GalateaVerdict){
     let mut bytes_verdict: u32 = 0;
@@ -51,3 +58,17 @@ pub fn ks_register_agent(handle: HANDLE) -> Result<(), String>{
         },
     }
 }
+
+/*
+pub fn kf_connect(){
+    unsafe {
+        let _ =InstallableFileSystems::FilterConnectCommunicationPort(
+            lpportname, 
+            dwoptions, 
+            lpcontext, 
+            wsizeofcontext, 
+            lpsecurityattributes
+        );
+    }
+     
+} */
