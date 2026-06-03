@@ -18,7 +18,7 @@ pub use ml::MlEngine;
 
 use crate::{STATIC_RESULT_CACHE, communication::ipc, utils};
 use crate::cache::static_analyzer_cache::{CompletedScan, ScanOutcome, StaticResultCache, WaitResult};
-use crate::engine::correlation::correlate_and_broadcast;
+use crate::engine::correlation::broadcast_process_verdict;
 use crate::probes::file_identity::get_file_index;
 use crate::{
     CODE_SIGN_FORGIVENESS, CODE_SIGN_REVOKED, CODE_SIGN_UNTRUSTED, HOOK_FILE_NAME, ML_CERTAINTY_MAL,
@@ -94,7 +94,7 @@ pub fn analyze_event(
                 mimic_error!("[SCAN] Failed to stat file, blocking (fail-closed): {image_path}");
                 let mut ctx = AnalysisResult::new(event);
                 ctx.verdict_allow = false;
-                correlate_and_broadcast(ctx, driver, ipc_sender.as_ref());
+                broadcast_process_verdict(ctx, driver, ipc_sender.as_ref());
                 return;
             }
         };
@@ -108,7 +108,7 @@ pub fn analyze_event(
                     let allow = details.threat_score <= crate::STAT_BLOCK_THRESHOLD;
                     let result = build_result_from_details(event, details, allow, file_size, last_write);
                     mimic_log!("[CACHE] Reusing cached result for {image_path}");
-                    correlate_and_broadcast(result, driver, ipc_sender.as_ref());
+                    broadcast_process_verdict(result, driver, ipc_sender.as_ref());
                     return;
                 }
                 ScanOutcome::Wait(barrier) => {
@@ -119,7 +119,7 @@ pub fn analyze_event(
                             let result = build_result_from_details(
                                 event, scan.details, allow, scan.file_size, scan.mod_time,
                             );
-                            correlate_and_broadcast(result, driver, ipc_sender.as_ref());
+                            broadcast_process_verdict(result, driver, ipc_sender.as_ref());
                             return;
                         }
                         // Timed out or failed — re-acquire a fresh scan slot
@@ -132,7 +132,7 @@ pub fn analyze_event(
                                     let result = build_result_from_details(
                                         event, details, allow, file_size, last_write,
                                     );
-                                    correlate_and_broadcast(result, driver, ipc_sender.as_ref());
+                                    broadcast_process_verdict(result, driver, ipc_sender.as_ref());
                                     return;
                                 }
                                 ScanOutcome::Acquired(guard) => {
@@ -146,14 +146,14 @@ pub fn analyze_event(
                                             let result = build_result_from_details(
                                                 event, scan.details, allow, scan.file_size, scan.mod_time,
                                             );
-                                            correlate_and_broadcast(result, driver, ipc_sender.as_ref());
+                                            broadcast_process_verdict(result, driver, ipc_sender.as_ref());
                                             return;
                                         }
                                         WaitResult::Failed | WaitResult::Timeout => {
                                             mimic_error!("[SCAN] Double wait failure, blocking (fail-closed): {image_path}");
                                             let mut ctx = AnalysisResult::new(event);
                                             ctx.verdict_allow = false;
-                                            correlate_and_broadcast(ctx, driver, ipc_sender.as_ref());
+                                            broadcast_process_verdict(ctx, driver, ipc_sender.as_ref());
                                             return;
                                         }
                                     }
@@ -171,7 +171,7 @@ pub fn analyze_event(
             mimic_error!("[SCAN] Zero-size file, blocking (fail-closed): {image_path}");
             let mut ctx = AnalysisResult::new(event);
             ctx.verdict_allow = false;
-            correlate_and_broadcast(ctx, driver, ipc_sender.as_ref());
+            broadcast_process_verdict(ctx, driver, ipc_sender.as_ref());
             return;
         }
 
@@ -194,7 +194,7 @@ pub fn analyze_event(
             mimic_error!("[SCAN] Failed to read file, blocking (fail-closed): {image_path}");
             ctx.verdict_allow = false;
             drop(scan_guard);
-            correlate_and_broadcast(ctx, driver, ipc_sender.as_ref());
+            broadcast_process_verdict(ctx, driver, ipc_sender.as_ref());
             return;
         }
 
@@ -251,7 +251,7 @@ pub fn analyze_event(
             }
         }
 
-        correlate_and_broadcast(ctx, driver, ipc_sender.as_ref());
+        broadcast_process_verdict(ctx, driver, ipc_sender.as_ref());
     } else {
         mimic_log!(
             "[FAST] PID: {:<6} | Image: {}",

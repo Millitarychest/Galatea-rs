@@ -21,10 +21,7 @@ pub unsafe extern "C" fn pre_create(
     unsafe {
         let file_obj = (*flt_objects).file_object;
         if !file_obj.is_null() && !(*file_obj).FileName.Buffer.is_null() {
-            DbgPrint(
-                b"GalateaFlt: [CREATE] %wZ\n\0".as_ptr() as *const i8,
-                &(*file_obj).FileName,
-            );
+            //DbgPrint(b"GalateaFlt: [CREATE] %wZ\n\0".as_ptr() as *const i8,&(*file_obj).FileName,);
         }
     }
     FLT_PREOP_SUCCESS_WITH_CALLBACK
@@ -43,11 +40,7 @@ pub unsafe extern "C" fn post_create(
         if status != STATUS_SUCCESS {
             let file_obj = (*flt_objects).file_object;
             if !file_obj.is_null() && !(*file_obj).FileName.Buffer.is_null() {
-                DbgPrint(
-                    b"GalateaFlt: [CREATE-FAIL] %wZ status=0x%08x\n\0".as_ptr() as *const i8,
-                    &(*file_obj).FileName,
-                    status,
-                );
+                //DbgPrint(b"GalateaFlt: [CREATE-FAIL] %wZ status=0x%08x\n\0".as_ptr() as *const i8,&(*file_obj).FileName,status,);
             }
         }
     }
@@ -64,10 +57,7 @@ pub unsafe extern "C" fn pre_write(
     unsafe {
         let file_obj = (*flt_objects).file_object;
         if !file_obj.is_null() && !(*file_obj).FileName.Buffer.is_null() {
-            DbgPrint(
-                b"GalateaFlt: [WRITE] %wZ\n\0".as_ptr() as *const i8,
-                &(*file_obj).FileName,
-            );
+            //DbgPrint(b"GalateaFlt: [WRITE] %wZ\n\0".as_ptr() as *const i8,&(*file_obj).FileName,);
         }
     }
     FLT_PREOP_SUCCESS_NO_CALLBACK
@@ -86,10 +76,7 @@ pub unsafe extern "C" fn pre_set_info(
     unsafe {
         let file_obj = (*flt_objects).file_object;
         if !file_obj.is_null() && !(*file_obj).FileName.Buffer.is_null() {
-            DbgPrint(
-                b"GalateaFlt: [SET_INFO] %wZ\n\0".as_ptr() as *const i8,
-                &(*file_obj).FileName,
-            );
+            //DbgPrint( b"GalateaFlt: [SET_INFO] %wZ\n\0".as_ptr() as *const i8, &(*file_obj).FileName,);
         }
     }
     FLT_PREOP_SUCCESS_NO_CALLBACK

@@ -70,6 +70,26 @@ unsafe extern "C" fn disconnect_notify(_connection_cookie: *mut c_void) {
     }
 }
 
+unsafe extern "C" fn message_notify(
+    port_cookie: *mut c_void,
+    input_buffer: *mut c_void,
+    input_buffer_length: u32,
+    output_buffer: *mut c_void,
+    output_buffer_length: u32,
+    return_output_buffer_length: *mut u32,
+) -> NTSTATUS{
+    // saftey: CLIENT_PORT should always be set at this point as to send a message the client will first have to connect which sets the var
+    unsafe {
+        if CLIENT_PORT == port_cookie {
+            DbgPrint(b"hi, this was the real client".as_ptr() as *const i8);
+        }
+        else {
+            DbgPrint(b"hi, this was a fake client".as_ptr() as *const i8);
+        }
+    }
+    STATUS_SUCCESS
+}
+
 /// Creates the minifilter's user-mode communication server port.
 pub(crate) unsafe fn initialize_port(filter: PfltFilter) -> NTSTATUS {
     if filter.is_null() {
@@ -113,7 +133,7 @@ pub(crate) unsafe fn initialize_port(filter: PfltFilter) -> NTSTATUS {
             null_mut(),
             Some(connect_notify),
             Some(disconnect_notify),
-            None,
+            Some(message_notify),
             1,
         )
     };

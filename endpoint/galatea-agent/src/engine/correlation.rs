@@ -12,7 +12,7 @@ use crate::communication::driver::io::ks_send_verdict;
 
 /// Correlates an analysis result with process metadata, broadcasts the detection
 /// event to IPC clients, and sends the verdict to the kernel driver.
-pub fn correlate_and_broadcast(
+pub fn broadcast_process_verdict(
     result: AnalysisResult,
     driver: SendHandle,
     ipc_sender: Option<&Sender<IpcMessage>>,

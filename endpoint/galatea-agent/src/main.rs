@@ -145,6 +145,10 @@ fn main() -> error::Result<()> {
     };
     let ml_engine = Arc::new(ml_engine);
 
+    //TEST for filter
+    let _ = communication::driver::io::kf_connect();
+
+
     // Setup worker threads
     let n_workers = 16; // Adjust
     let worker_pool = ThreadPool::new(n_workers);
