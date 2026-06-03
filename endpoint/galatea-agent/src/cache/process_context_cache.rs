@@ -1,5 +1,4 @@
-use crate::cache::{file_context_cache::FileContext, static_analyzer_cache::CompletedScan};
-
+use crate::cache::static_analyzer_cache::ScanSummary;
 
 // Contextual information about a Process
 // Might move in the future
@@ -8,8 +7,7 @@ pub struct ProcessContext {
     pid: u64,
     //try get guid to avoid pid colisions
     guid: Option<String>,
-    last_scan_verdict: CompletedScan,
+    last_scan_verdict: ScanSummary,
     //matching_signatures: todo!(),
     behavioural_score: u64,
-    
 }

@@ -41,6 +41,50 @@ pub struct GalateaVerdict {
 
 
 // Agent and Filter
+/// Module containing communication-port structures used by the filesystem filter.
+pub mod filter_port {
+    /// Maximum payload bytes carried by one filter communication-port message.
+    pub const FILTER_PORT_PAYLOAD_SIZE: usize = 512;
+
+    /// Message kind sent over the filter communication port.
+    #[repr(u32)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum GalateaFilterMessageKind {
+        /// Raw proof-of-concept payload.
+        Raw = 0,
+        /// Filesystem telemetry payload.
+        FileTelemetry = 1,
+    }
+
+    impl Default for GalateaFilterMessageKind {
+        fn default() -> Self {
+            Self::Raw
+        }
+    }
+
+    /// Message payload sent from the filesystem filter to the agent.
+    #[repr(C)]
+    #[derive(Clone, Copy, Debug)]
+    pub struct GalateaFilterMessage {
+        /// Message kind discriminator.
+        pub kind: GalateaFilterMessageKind,
+        /// Number of valid bytes in [`payload`](Self::payload).
+        pub payload_len: u32,
+        /// Fixed-size payload buffer.
+        pub payload: [u8; FILTER_PORT_PAYLOAD_SIZE],
+    }
+
+    impl Default for GalateaFilterMessage {
+        fn default() -> Self {
+            Self {
+                kind: GalateaFilterMessageKind::Raw,
+                payload_len: 0,
+                payload: [0; FILTER_PORT_PAYLOAD_SIZE],
+            }
+        }
+    }
+}
+
 /// Module Containing the IOCTL structures used to communicate between the Kernel and Agent
 pub mod filter_ioctl {
 

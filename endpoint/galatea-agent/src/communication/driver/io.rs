@@ -1,36 +1,44 @@
-///! Module describes helper functions for communicating with Kernel mode, 
+///! Module describes helper functions for communicating with Kernel mode,
 ///! mainly targeting the Galatea FS filter and Kernel Sensor
 ///! public interfaces should be prefixed with "kf_" for kernel filter or
 ///! public interfaces should be prefixed with "ks_" for kernel sensor
-
 use std::ffi::c_void;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+use std::thread::{self, JoinHandle};
 
-use mimic_core::{mimic_error, mimic_success};
-use galatea_shared::{GalateaVerdict, IOCTL_REGISTER_AGENT, IOCTL_SEND_VERDICT};
+use galatea_shared::{
+    GalateaVerdict, IOCTL_REGISTER_AGENT, IOCTL_SEND_VERDICT,
+    filter_port::{FILTER_PORT_PAYLOAD_SIZE, GalateaFilterMessage},
+};
+use mimic_core::{mimic_error, mimic_log, mimic_success};
 use windows::{
     Win32::{
         Foundation::{CloseHandle, HANDLE},
-        Storage::InstallableFileSystems::{FilterConnectCommunicationPort, FilterSendMessage},
+        Storage::InstallableFileSystems::{
+            FILTER_MESSAGE_HEADER, FilterConnectCommunicationPort, FilterGetMessage,
+        },
         System::IO::DeviceIoControl,
     },
     core::w,
 };
 
-const GALATEA_FILTER_PORT_NAME: windows::core::PCWSTR = w!("\\GalateaFilterPort");
-const GALATEA_FILTER_POC_MESSAGE: &[u8] = b"galatea-filter-poc";
+use crate::communication::ipc::SendHandle;
 
-pub fn ks_send_verdict(handle: HANDLE, mut verdict: GalateaVerdict){
+pub fn ks_send_verdict(handle: HANDLE, mut verdict: GalateaVerdict) {
     let mut bytes_verdict: u32 = 0;
     let verdict_result = unsafe {
         DeviceIoControl(
-            handle, 
-            IOCTL_SEND_VERDICT, 
-            Some(&mut verdict as *mut _ as *mut c_void), 
-            size_of::<GalateaVerdict>() as u32, 
-            None, 
-            0, 
-            Some(&mut bytes_verdict), 
-            None
+            handle,
+            IOCTL_SEND_VERDICT,
+            Some(&mut verdict as *mut _ as *mut c_void),
+            size_of::<GalateaVerdict>() as u32,
+            None,
+            0,
+            Some(&mut bytes_verdict),
+            None,
         )
     };
 
@@ -40,21 +48,21 @@ pub fn ks_send_verdict(handle: HANDLE, mut verdict: GalateaVerdict){
     }
 }
 
-pub fn ks_register_agent(handle: HANDLE) -> Result<(), String>{
+pub fn ks_register_agent(handle: HANDLE) -> Result<(), String> {
     let mut bytes_returned: u32 = 0;
     let result = unsafe {
         DeviceIoControl(
-            handle, 
-            IOCTL_REGISTER_AGENT, 
-            None, 
-            0, 
-            None, 
-            0, 
-            Some(&mut bytes_returned), 
-            None
+            handle,
+            IOCTL_REGISTER_AGENT,
+            None,
+            0,
+            None,
+            0,
+            Some(&mut bytes_returned),
+            None,
         )
     };
-    
+
     match result {
         Ok(_) => {
             mimic_success!("Agent Registered with Kernel Driver.");
@@ -63,15 +71,47 @@ pub fn ks_register_agent(handle: HANDLE) -> Result<(), String>{
         Err(e) => {
             mimic_error!("Failed to Register Agent (Access Denied?): {:?}", e);
             Err(format!("{:?}", e))
-        },
+        }
     }
 }
 
+///Filter stuff
 
-pub fn kf_connect() -> Result<(), String> {
-    let port_handle = unsafe {
-        FilterConnectCommunicationPort(GALATEA_FILTER_PORT_NAME, 0, None, 0, None)
-    };
+const GALATEA_FILTER_PORT_NAME: windows::core::PCWSTR = w!("\\GalateaFilterPort");
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+struct FilterPortMessageBuffer {
+    header: FILTER_MESSAGE_HEADER,
+    message: GalateaFilterMessage,
+}
+
+/// Owns the filter communication-port listener thread.
+pub struct FilterPortListener {
+    port_handle: HANDLE,
+    running: Arc<AtomicBool>,
+    listener_thread: Option<JoinHandle<()>>,
+}
+
+impl Drop for FilterPortListener {
+    fn drop(&mut self) {
+        self.running.store(false, Ordering::SeqCst);
+
+        if let Err(e) = unsafe { CloseHandle(self.port_handle) } {
+            mimic_error!("Failed to close filter communication port handle: {:?}", e);
+        }
+
+        if let Some(listener_thread) = self.listener_thread.take()
+            && listener_thread.join().is_err()
+        {
+            mimic_error!("Filter communication port listener thread panicked");
+        }
+    }
+}
+
+pub fn kf_connect_and_listen() -> Result<FilterPortListener, String> {
+    let port_handle =
+        unsafe { FilterConnectCommunicationPort(GALATEA_FILTER_PORT_NAME, 0, None, 0, None) };
 
     let port_handle = match port_handle {
         Ok(handle) => handle,
@@ -81,31 +121,64 @@ pub fn kf_connect() -> Result<(), String> {
         }
     };
 
-    let mut bytes_returned = 0;
-    let send_result = unsafe {
-        FilterSendMessage(
-            port_handle,
-            GALATEA_FILTER_POC_MESSAGE.as_ptr() as *const c_void,
-            GALATEA_FILTER_POC_MESSAGE.len() as u32,
-            None,
-            0,
-            &mut bytes_returned,
-        )
-    };
+    mimic_success!("Connected to filter communication port.");
 
-    let close_result = unsafe { CloseHandle(port_handle) };
-    if let Err(e) = close_result {
-        mimic_error!("Failed to close filter communication port handle: {:?}", e);
+    let running = Arc::new(AtomicBool::new(true));
+    let listener_running = Arc::clone(&running);
+    let listener_handle = SendHandle::from(port_handle);
+
+    let listener_thread = thread::spawn(move || {
+        let port_handle = HANDLE::from(listener_handle);
+        if let Err(e) = kf_listen_for_messages(port_handle, listener_running) {
+            mimic_error!("Filter communication port listener stopped: {e}");
+        }
+    });
+
+    Ok(FilterPortListener {
+        port_handle,
+        running,
+        listener_thread: Some(listener_thread),
+    })
+}
+
+fn kf_listen_for_messages(port_handle: HANDLE, running: Arc<AtomicBool>) -> Result<(), String> {
+    while running.load(Ordering::SeqCst) {
+        let mut message_buffer = FilterPortMessageBuffer::default();
+        let message_result = unsafe {
+            FilterGetMessage(
+                port_handle,
+                &raw mut message_buffer.header,
+                size_of::<FilterPortMessageBuffer>() as u32,
+                None,
+            )
+        };
+
+        if let Err(e) = message_result {
+            if !running.load(Ordering::SeqCst) {
+                mimic_log!("Filter communication port listener shutting down");
+                return Ok(());
+            }
+
+            mimic_error!("Failed to receive filter port message: {:?}", e);
+            return Err(format!("{e:?}"));
+        }
+
+        let payload_len =
+            (message_buffer.message.payload_len as usize).min(FILTER_PORT_PAYLOAD_SIZE);
+        let payload = &message_buffer.message.payload[..payload_len];
+        let payload_text = String::from_utf8_lossy(payload);
+
+        // Log and safe telemetry
+        mimic_log!(
+            "Filter message received: id={}, reply_len={}, kind={:?}, payload_len={}, payload={:?}, text='{}'",
+            message_buffer.header.MessageId,
+            message_buffer.header.ReplyLength,
+            message_buffer.message.kind,
+            payload_len,
+            payload,
+            payload_text,
+        );
     }
 
-    match send_result {
-        Ok(_) => {
-            mimic_success!("Filter port PoC message sent.");
-            Ok(())
-        }
-        Err(e) => {
-            mimic_error!("Failed to send PoC message to filter port: {:?}", e);
-            Err(format!("{e:?}"))
-        }
-    }
+    Ok(())
 }

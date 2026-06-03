@@ -49,7 +49,7 @@ unsafe extern "C" fn connect_notify(
 
         CLIENT_PORT = client_port;
         if !connection_port_cookie.is_null() {
-            *connection_port_cookie = null_mut();
+            *connection_port_cookie = client_port as *mut c_void;
         }
 
         DbgPrint(b"GalateaFlt: filter port client connected\n\0".as_ptr() as *const i8);
