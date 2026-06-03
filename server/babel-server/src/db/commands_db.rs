@@ -1,6 +1,5 @@
 use mimic_core::error;
 
-
 #[derive(Debug)]
 pub struct PendingCommand {
     pub command_id: String,
@@ -8,7 +7,7 @@ pub struct PendingCommand {
     pub payload_json: Option<String>,
 }
 
-/// Helper Struct: Representing the DB value of Command status as a rust enum 
+/// Helper Struct: Representing the DB value of Command status as a rust enum
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CmdStatus {
     Pending,
@@ -24,7 +23,6 @@ impl CmdStatus {
             CmdStatus::Completed => "completed",
         }
     }
-
 }
 
 impl TryFrom<&str> for CmdStatus {
@@ -41,7 +39,10 @@ impl TryFrom<&str> for CmdStatus {
 }
 
 /// Gets pending commands for a agent, ordered by creation time
-pub fn get_pending_commands(pool: &super::DbPool, agent_id: &str) -> error::Result<Vec<PendingCommand>> {
+pub fn get_pending_commands(
+    pool: &super::DbPool,
+    agent_id: &str,
+) -> error::Result<Vec<PendingCommand>> {
     let conn = pool.get()?;
 
     let mut stmt = conn.prepare(
@@ -72,12 +73,15 @@ pub fn mark_command_delivered(pool: &super::DbPool, command_id: &str) -> error::
         "UPDATE commands 
             SET status = ?1, delivered_at = ?2
             WHERE command_id = ?3",
-        [CmdStatus::Delivered.as_str(), &chrono::Utc::now().to_rfc3339(), command_id],
+        [
+            CmdStatus::Delivered.as_str(),
+            &chrono::Utc::now().to_rfc3339(),
+            command_id,
+        ],
     )?;
 
     Ok(())
 }
-
 
 pub fn complete_command(pool: &super::DbPool, command_id: &str) -> error::Result<()> {
     let conn = pool.get()?;
@@ -86,7 +90,11 @@ pub fn complete_command(pool: &super::DbPool, command_id: &str) -> error::Result
         "UPDATE commands 
             SET status = ?1, acked_at = ?2
             WHERE command_id = ?3",
-        [CmdStatus::Completed.as_str(), &chrono::Utc::now().to_rfc3339(), command_id],
+        [
+            CmdStatus::Completed.as_str(),
+            &chrono::Utc::now().to_rfc3339(),
+            command_id,
+        ],
     )?;
 
     Ok(())

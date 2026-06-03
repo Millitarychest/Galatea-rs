@@ -8,7 +8,9 @@
 
 use core::ffi::c_void;
 use core::ptr::null_mut;
-use wdk_sys::{DRIVER_OBJECT, FILE_OBJECT, HANDLE, IO_STATUS_BLOCK, LARGE_INTEGER, NTSTATUS, UNICODE_STRING};
+use wdk_sys::{
+    DRIVER_OBJECT, FILE_OBJECT, HANDLE, IO_STATUS_BLOCK, LARGE_INTEGER, NTSTATUS, UNICODE_STRING,
+};
 
 // ---- Opaque handles ----
 

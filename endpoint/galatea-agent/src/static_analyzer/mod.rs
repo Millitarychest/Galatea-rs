@@ -2,10 +2,12 @@ use std::fs;
 use std::sync::{Arc, mpsc::Sender};
 use std::time::SystemTime;
 
+use galatea_shared::GalateaEvent;
+use galatea_shared::ipc::{
+    AuthenticodeInfo, DetectionDetails, HeuristicResults, IpcMessage, MlPrediction, SignatureMatch,
+};
 use goblin::pe::PE;
 use mimic_core::{mimic_error, mimic_log};
-use galatea_shared::ipc::{AuthenticodeInfo, DetectionDetails, HeuristicResults, IpcMessage, MlPrediction, SignatureMatch};
-use galatea_shared::GalateaEvent;
 
 mod authenticode;
 mod heuristics;
@@ -16,18 +18,20 @@ pub use packers::PackerSignatureEngine;
 mod ml;
 pub use ml::MlEngine;
 
-use crate::{STATIC_RESULT_CACHE, communication::ipc, utils};
-use crate::cache::static_analyzer_cache::{CompletedScan, ScanOutcome, StaticResultCache, WaitResult};
+use crate::cache::static_analyzer_cache::{
+    CompletedScan, ScanOutcome, StaticResultCache, WaitResult,
+};
 use crate::engine::correlation::broadcast_process_verdict;
 use crate::probes::file_identity::get_file_index;
 use crate::{
-    CODE_SIGN_FORGIVENESS, CODE_SIGN_REVOKED, CODE_SIGN_UNTRUSTED, HOOK_FILE_NAME, ML_CERTAINTY_MAL,
-    ML_MALICIOUS,
-    static_analyzer::authenticode::verify_signature,
+    CODE_SIGN_FORGIVENESS, CODE_SIGN_REVOKED, CODE_SIGN_UNTRUSTED, HOOK_FILE_NAME,
+    ML_CERTAINTY_MAL, ML_MALICIOUS,
     db::{self, DbPool, IocType},
     injector::inject_dll,
+    static_analyzer::authenticode::verify_signature,
     utils::hashing::calc_md5,
 };
+use crate::{STATIC_RESULT_CACHE, communication::ipc, utils};
 
 pub struct AnalysisResult {
     pub event: GalateaEvent,
@@ -106,7 +110,8 @@ pub fn analyze_event(
             match cache.try_acquire_scan(&image_path, last_write, file_size) {
                 ScanOutcome::CacheHit(details) => {
                     let allow = details.threat_score <= crate::STAT_BLOCK_THRESHOLD;
-                    let result = build_result_from_details(event, details, allow, file_size, last_write);
+                    let result =
+                        build_result_from_details(event, details, allow, file_size, last_write);
                     mimic_log!("[CACHE] Reusing cached result for {image_path}");
                     broadcast_process_verdict(result, driver, ipc_sender.as_ref());
                     return;
@@ -117,14 +122,20 @@ pub fn analyze_event(
                         WaitResult::Completed(scan) => {
                             let allow = scan.details.threat_score <= crate::STAT_BLOCK_THRESHOLD;
                             let result = build_result_from_details(
-                                event, scan.details, allow, scan.file_size, scan.mod_time,
+                                event,
+                                scan.details,
+                                allow,
+                                scan.file_size,
+                                scan.mod_time,
                             );
                             broadcast_process_verdict(result, driver, ipc_sender.as_ref());
                             return;
                         }
                         // Timed out or failed — re-acquire a fresh scan slot
                         WaitResult::Failed | WaitResult::Timeout => {
-                            mimic_log!("[SCAN] In-flight scan failed/timed out, re-acquiring scan slot");
+                            mimic_log!(
+                                "[SCAN] In-flight scan failed/timed out, re-acquiring scan slot"
+                            );
                             match cache.try_acquire_scan(&image_path, last_write, file_size) {
                                 ScanOutcome::CacheHit(details) => {
                                     // Original owner finished between our timeout and re-acquire
@@ -142,18 +153,33 @@ pub fn analyze_event(
                                     // Another thread beat us — wait once more, then fail-closed
                                     match barrier2.wait() {
                                         WaitResult::Completed(scan) => {
-                                            let allow = scan.details.threat_score <= crate::STAT_BLOCK_THRESHOLD;
+                                            let allow = scan.details.threat_score
+                                                <= crate::STAT_BLOCK_THRESHOLD;
                                             let result = build_result_from_details(
-                                                event, scan.details, allow, scan.file_size, scan.mod_time,
+                                                event,
+                                                scan.details,
+                                                allow,
+                                                scan.file_size,
+                                                scan.mod_time,
                                             );
-                                            broadcast_process_verdict(result, driver, ipc_sender.as_ref());
+                                            broadcast_process_verdict(
+                                                result,
+                                                driver,
+                                                ipc_sender.as_ref(),
+                                            );
                                             return;
                                         }
                                         WaitResult::Failed | WaitResult::Timeout => {
-                                            mimic_error!("[SCAN] Double wait failure, blocking (fail-closed): {image_path}");
+                                            mimic_error!(
+                                                "[SCAN] Double wait failure, blocking (fail-closed): {image_path}"
+                                            );
                                             let mut ctx = AnalysisResult::new(event);
                                             ctx.verdict_allow = false;
-                                            broadcast_process_verdict(ctx, driver, ipc_sender.as_ref());
+                                            broadcast_process_verdict(
+                                                ctx,
+                                                driver,
+                                                ipc_sender.as_ref(),
+                                            );
                                             return;
                                         }
                                     }
@@ -244,9 +270,7 @@ pub fn analyze_event(
                     Err(e) => mimic_error!("Inject failed: {e}"),
                 },
                 None => {
-                    mimic_error!(
-                        "Skipping hook injection due to non-UTF8 DLL path: {dll_path:?}"
-                    );
+                    mimic_error!("Skipping hook injection due to non-UTF8 DLL path: {dll_path:?}");
                 }
             }
         }
@@ -262,7 +286,8 @@ pub fn analyze_event(
         // Optionally report system processes to the UI (no verdict, no scan)
         if crate::SHOW_SYSTEM_PROCESSES {
             if let Some(ref sender) = ipc_sender {
-                let process_info_data = crate::probes::process_info::get_process_info(event.process_id);
+                let process_info_data =
+                    crate::probes::process_info::get_process_info(event.process_id);
 
                 let process_info = galatea_shared::ipc::ProcessInfo {
                     pid: event.process_id,

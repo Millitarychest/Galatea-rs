@@ -1,14 +1,8 @@
 use std::{collections::BTreeMap, mem, sync::LazyLock};
 
 use windows::{
-    Win32::System::LibraryLoader::{
-        GetModuleHandleA, 
-        GetProcAddress
-    }, 
-    core::{
-        PCSTR, 
-        s
-    }
+    Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress},
+    core::{PCSTR, s},
 };
 
 /// Automated syscall number repository

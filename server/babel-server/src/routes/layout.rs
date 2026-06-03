@@ -1,11 +1,6 @@
 use axum::response::Html;
 
-pub fn page(
-    title: &str,
-    active: &str,
-    registration_secret: &str,
-    content: &str,
-) -> Html<String> {
+pub fn page(title: &str, active: &str, registration_secret: &str, content: &str) -> Html<String> {
     let escaped_secret = escape_html(registration_secret);
 
     Html(format!(

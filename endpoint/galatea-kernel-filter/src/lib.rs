@@ -7,8 +7,8 @@ extern crate alloc;
 #[cfg(not(test))]
 extern crate wdk_panic;
 
-mod ffi;
 mod callbacks;
+mod ffi;
 mod io;
 
 use core::mem::zeroed;
@@ -21,9 +21,8 @@ use wdk_sys::{
 };
 
 use crate::ffi::flt::{
-    FLT_OPERATION_REGISTRATION, FLT_REGISTRATION, FLT_REGISTRATION_VERSION,
-    FltRegisterFilter, FltStartFiltering, FltUnregisterFilter,
-    IRP_MJ_OPERATION_END, PfltFilter,
+    FLT_OPERATION_REGISTRATION, FLT_REGISTRATION, FLT_REGISTRATION_VERSION, FltRegisterFilter,
+    FltStartFiltering, FltUnregisterFilter, IRP_MJ_OPERATION_END, PfltFilter,
 };
 
 use crate::callbacks::fs_callbacks;
@@ -38,7 +37,6 @@ static GLOBAL_ALLOCATOR: WdkAllocator = WdkAllocator;
 
 /// Handle returned by `FltRegisterFilter`, needed for teardown.
 pub(crate) static mut FILTER_HANDLE: PfltFilter = null_mut();
-
 
 // ---- Filter unload ----
 

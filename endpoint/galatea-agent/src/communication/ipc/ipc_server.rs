@@ -1,10 +1,10 @@
-use mimic_core::{mimic_error, mimic_log};
 use galatea_shared::ipc::{IpcMessage, PIPE_BUFFER_SIZE, PIPE_NAME};
+use mimic_core::{mimic_error, mimic_log};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use windows::Win32::Foundation::{
-    CloseHandle, ERROR_BROKEN_PIPE, ERROR_NO_DATA, ERROR_PIPE_CONNECTED, HANDLE,
-    HLOCAL, INVALID_HANDLE_VALUE,
+    CloseHandle, ERROR_BROKEN_PIPE, ERROR_NO_DATA, ERROR_PIPE_CONNECTED, HANDLE, HLOCAL,
+    INVALID_HANDLE_VALUE,
 };
 use windows::Win32::Security::Authorization::{
     ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
@@ -16,8 +16,6 @@ use windows::Win32::System::Pipes::{
     PIPE_TYPE_MESSAGE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
 };
 use windows::core::{PWSTR, w};
-
-
 
 #[allow(dead_code)]
 pub struct IpcServer {

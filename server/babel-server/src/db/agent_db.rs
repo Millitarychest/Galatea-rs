@@ -2,7 +2,6 @@ use babel_api_definition::AgentRegistration;
 use mimic_core::error;
 use rusqlite::{OptionalExtension, Row};
 
-
 #[derive(Debug)]
 pub struct AgentInfo {
     pub agent_id: String,
@@ -15,8 +14,7 @@ pub struct AgentInfo {
     pub status: AgentStatus,
 }
 
-
-/// Helper Struct: Representing the DB value of Agent status as a rust enum 
+/// Helper Struct: Representing the DB value of Agent status as a rust enum
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentStatus {
     Online,
@@ -32,8 +30,6 @@ impl AgentStatus {
             AgentStatus::Offline => "offline",
         }
     }
-
-    
 }
 
 impl TryFrom<&str> for AgentStatus {
@@ -145,7 +141,6 @@ pub fn mark_stale_agents_offline(
     Ok(rows_affected)
 }
 
-
 /// Helper to convert database entry to AgentInfo struct
 fn row_to_agent(row: &Row) -> rusqlite::Result<AgentInfo> {
     let status_str: String = row.get(7)?;
@@ -163,4 +158,3 @@ fn row_to_agent(row: &Row) -> rusqlite::Result<AgentInfo> {
         status,
     })
 }
-

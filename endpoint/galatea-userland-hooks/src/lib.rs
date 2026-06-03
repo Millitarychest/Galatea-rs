@@ -1,22 +1,26 @@
-use std::{ffi::c_void};
+use std::ffi::c_void;
+use windows::Win32::System::SystemServices::DLL_PROCESS_ATTACH;
 use windows::Win32::{
-    Foundation::{GetLastError, HINSTANCE, STATUS_SUCCESS}, 
+    Foundation::{GetLastError, HINSTANCE, STATUS_SUCCESS},
     System::{
         Memory::{PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS, VirtualProtect},
-        Threading::{CreateThread, THREAD_CREATION_FLAGS}
+        Threading::{CreateThread, THREAD_CREATION_FLAGS},
     },
 };
-use windows::Win32::System::SystemServices::{DLL_PROCESS_ATTACH};
 
 mod addresses;
-mod stubs;
 mod ssn;
+mod stubs;
 mod threads;
-use crate::{addresses::StubAddresses, ssn::SYSCALL_NUMBER, threads::{resume_all_threads, suspend_all_threads}};
+use crate::{
+    addresses::StubAddresses,
+    ssn::SYSCALL_NUMBER,
+    threads::{resume_all_threads, suspend_all_threads},
+};
 // init
-unsafe extern "system" fn init_hooks(_: *mut c_void) -> u32{
+unsafe extern "system" fn init_hooks(_: *mut c_void) -> u32 {
     let suspended_handels = suspend_all_threads();
-    
+
     let stub_addresses = StubAddresses::new();
 
     patch(&stub_addresses);
@@ -24,7 +28,6 @@ unsafe extern "system" fn init_hooks(_: *mut c_void) -> u32{
     resume_all_threads(suspended_handels);
     return STATUS_SUCCESS.0 as _;
 }
-
 
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
@@ -34,18 +37,16 @@ pub unsafe extern "system" fn DllMain(
     _reserved: *mut c_void,
 ) -> i32 {
     match reason {
-        DLL_PROCESS_ATTACH => {
-            unsafe {
-                let _ = CreateThread(
-                    None,
-                    0,
-                    Some(init_hooks),
-                    None,
-                    THREAD_CREATION_FLAGS(0),
-                    None,
-                );
-            }
-        }
+        DLL_PROCESS_ATTACH => unsafe {
+            let _ = CreateThread(
+                None,
+                0,
+                Some(init_hooks),
+                None,
+                THREAD_CREATION_FLAGS(0),
+                None,
+            );
+        },
         _ => {}
     }
     1
@@ -98,7 +99,7 @@ fn patch(addresses: &StubAddresses) {
             *b = ((addr64 >> (i * 8)) & 0xFF) as u8;
         }
 
-         unsafe {
+        unsafe {
             std::ptr::copy_nonoverlapping(
                 addr_bytes.as_ptr(),
                 (item.ntdll + 2) as *mut _,

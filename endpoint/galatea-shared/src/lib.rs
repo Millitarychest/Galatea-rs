@@ -39,7 +39,6 @@ pub struct GalateaVerdict {
     pub allow: bool,
 }
 
-
 // Agent and Filter
 /// Module containing communication-port structures used by the filesystem filter.
 pub mod filter_port {
@@ -113,11 +112,9 @@ pub mod filter_ioctl {
         /// A file was renamed or its Metadata was changed
         FileModify,
         /// A file was marked for deletion
-        FileDelete
+        FileDelete,
     }
-
 }
-
 
 // Agent and Client
 /// Module containing usermode IPC definitions
@@ -136,7 +133,6 @@ pub mod ipc {
     pub const PIPE_BUFFER_SIZE: u32 = 65536; // 64KB buffer
     /// Named Pipe Configuration item "timeout" used for agent - client IPC
     pub const PIPE_TIMEOUT_MS: u32 = 5000;
-
 
     /// Struct used in agent IPC broadcast, containing all relavent detection information
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -235,7 +231,7 @@ pub mod ipc {
         pub packer_name: Option<String>,
         /// Section with RWX permission found
         pub has_rwx_sections: bool,
-        /// is the entropy unusual 
+        /// is the entropy unusual
         pub high_entropy: bool,
         /// Imphash of the binary
         pub imphash: Option<String>,
@@ -270,15 +266,15 @@ pub mod ipc {
         Detection(DetectionEvent),
 
         /// Agent status update
-        StatusUpdate { 
+        StatusUpdate {
             /// Message - to be defined
-            message: String 
+            message: String,
         },
 
         /// Configuration change notification
-        ConfigUpdate { 
+        ConfigUpdate {
             /// Message - to be defined
-            message: String 
+            message: String,
         },
     }
 }
