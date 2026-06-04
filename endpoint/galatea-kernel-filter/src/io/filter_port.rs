@@ -7,10 +7,11 @@ use wdk_sys::{
 };
 
 use crate::ffi::flt::{
-    FLT_PORT_ALL_ACCESS, FltBuildDefaultSecurityDescriptor, FltCloseClientPort,
-    FltCloseCommunicationPort, FltCreateCommunicationPort, FltFreeSecurityDescriptor,
-    OBJ_CASE_INSENSITIVE, OBJ_KERNEL_HANDLE, PfltFilter, PfltPort, SecurityDescriptor,
-    initialize_object_attributes,
+    FLT_PORT_ALL_ACCESS, FltBuildDefaultSecurityDescriptor, FltCloseClientPort, FltCloseCommunicationPort, FltCreateCommunicationPort, FltFreeSecurityDescriptor, FltSendMessage, OBJ_CASE_INSENSITIVE, OBJ_KERNEL_HANDLE, PfltFilter, PfltPort, SecurityDescriptor, initialize_object_attributes
+};
+
+use galatea_shared::filter_port::{
+    FILTER_PORT_PAYLOAD_SIZE, GalateaFilterMessage, GalateaFilterMessageKind, GalateaFSEvent,
 };
 
 macro_rules! w {
@@ -176,5 +177,37 @@ pub(crate) unsafe fn teardown_port(filter: PfltFilter) {
         if !filter.is_null() && !CLIENT_PORT.is_null() {
             FltCloseClientPort(filter, &raw mut CLIENT_PORT);
         }
+    }
+}
+
+
+/// Sends a filesystem telemetry event to the agent.
+pub(crate) unsafe fn send_fs_telemetry(event: *const GalateaFSEvent) -> NTSTATUS {
+    /// `event` must point to a valid, properly aligned [`GalateaFSEvent`].
+    /// The filter communication port must be initialized with a connected client. As this should only be called by the callbacks this is a given
+    unsafe {
+        if crate::FILTER_HANDLE.is_null() || CLIENT_PORT.is_null() {
+            return STATUS_INVALID_PARAMETER;
+        }
+
+        let mut message = GalateaFilterMessage::default();
+        message.kind = GalateaFilterMessageKind::FileTelemetry;
+        message.payload_len = core::mem::size_of::<GalateaFSEvent>() as u32;
+
+        core::ptr::copy_nonoverlapping(
+            event as *const u8,
+            message.payload.as_mut_ptr(),
+            message.payload_len as usize,
+        );
+
+        FltSendMessage(
+            crate::FILTER_HANDLE,
+            &raw mut CLIENT_PORT,
+            &raw mut message as *mut c_void,
+            core::mem::size_of::<GalateaFilterMessage>() as u32,
+            null_mut(),
+            null_mut(),
+            null_mut(),
+        )
     }
 }

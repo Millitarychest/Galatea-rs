@@ -43,7 +43,7 @@ pub struct GalateaVerdict {
 /// Module containing communication-port structures used by the filesystem filter.
 pub mod filter_port {
     /// Maximum payload bytes carried by one filter communication-port message.
-    pub const FILTER_PORT_PAYLOAD_SIZE: usize = 512;
+    pub const FILTER_PORT_PAYLOAD_SIZE: usize = 1024;
 
     /// Message kind sent over the filter communication port.
     #[repr(u32)]
@@ -82,13 +82,10 @@ pub mod filter_port {
             }
         }
     }
-}
-
-/// Module Containing the IOCTL structures used to communicate between the Kernel and Agent
-pub mod filter_ioctl {
-
+    
     /// Struct used to send File System Events via IOCTL
     #[repr(C)]
+    #[derive(Clone, Copy, Debug)]
     pub struct GalateaFSEvent {
         /// Process ID
         pub process_id: u64,
@@ -102,6 +99,7 @@ pub mod filter_ioctl {
 
     /// Enum used to represent the different actions that might be taken on a File
     #[repr(C)]
+    #[derive(Clone, Copy, Debug)]
     pub enum FSEventType {
         /// A file handle was opened
         FileOpen,

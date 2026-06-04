@@ -3,10 +3,12 @@ use crate::ffi::flt::{
     FLT_PREOP_SUCCESS_WITH_CALLBACK, FLT_RELATED_OBJECTS, FltPostopCallbackStatus,
     FltPreopCallbackStatus,
 };
+use crate::io::filter_port::send_fs_telemetry;
 
 use core::ffi::c_void;
+use galatea_shared::filter_port::{FSEventType, GalateaFSEvent};
 use wdk_sys::STATUS_SUCCESS;
-use wdk_sys::ntddk::DbgPrint;
+use wdk_sys::ntddk::{DbgPrint, PsGetCurrentProcessId};
 
 /// Pre-create callback: logs every file open and allows it.
 ///
@@ -57,7 +59,19 @@ pub unsafe extern "C" fn pre_write(
     unsafe {
         let file_obj = (*flt_objects).file_object;
         if !file_obj.is_null() && !(*file_obj).FileName.Buffer.is_null() {
-            //DbgPrint(b"GalateaFlt: [WRITE] %wZ\n\0".as_ptr() as *const i8,&(*file_obj).FileName,);
+            let file_name = &(*file_obj).FileName;
+            let copy_len = ((file_name.Length as usize) / 2).min(259);
+            let mut file_path = [0u16; 260];
+            core::ptr::copy_nonoverlapping(file_name.Buffer, file_path.as_mut_ptr(), copy_len);
+
+            let event = GalateaFSEvent {
+                process_id: PsGetCurrentProcessId() as usize as u64,
+                request_id: 0,
+                event_type: FSEventType::FileWrite,
+                file_path,
+            };
+
+            send_fs_telemetry(&raw const event);
         }
     }
     FLT_PREOP_SUCCESS_NO_CALLBACK

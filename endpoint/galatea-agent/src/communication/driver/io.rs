@@ -9,6 +9,7 @@ use std::sync::{
 };
 use std::thread::{self, JoinHandle};
 
+use galatea_shared::filter_port::{GalateaFSEvent, GalateaFilterMessageKind};
 use galatea_shared::{
     GalateaVerdict, IOCTL_REGISTER_AGENT, IOCTL_SEND_VERDICT,
     filter_port::{FILTER_PORT_PAYLOAD_SIZE, GalateaFilterMessage},
@@ -163,21 +164,54 @@ fn kf_listen_for_messages(port_handle: HANDLE, running: Arc<AtomicBool>) -> Resu
             return Err(format!("{e:?}"));
         }
 
-        let payload_len =
-            (message_buffer.message.payload_len as usize).min(FILTER_PORT_PAYLOAD_SIZE);
-        let payload = &message_buffer.message.payload[..payload_len];
-        let payload_text = String::from_utf8_lossy(payload);
+        match message_buffer.message.kind {
+            GalateaFilterMessageKind::FileTelemetry => {
+                let payload = &message_buffer.message.payload;
+                let mut fs_event = GalateaFSEvent {
+                    process_id: 0,
+                    request_id: 0,
+                    event_type: galatea_shared::filter_port::FSEventType::FileOpen,
+                    file_path: [0; 260],
+                };
+                let copy_len = (message_buffer.message.payload_len as usize)
+                    .min(core::mem::size_of::<GalateaFSEvent>());
+                unsafe {
+                    core::ptr::copy_nonoverlapping(
+                        payload.as_ptr(),
+                        &mut fs_event as *mut _ as *mut u8,
+                        copy_len,
+                    );
+                }
 
-        // Log and safe telemetry
-        mimic_log!(
-            "Filter message received: id={}, reply_len={}, kind={:?}, payload_len={}, payload={:?}, text='{}'",
-            message_buffer.header.MessageId,
-            message_buffer.header.ReplyLength,
-            message_buffer.message.kind,
-            payload_len,
-            payload,
-            payload_text,
-        );
+                let path = String::from_utf16_lossy(
+                    &fs_event.file_path[..fs_event.file_path.iter()
+                        .position(|&c| c == 0)
+                        .unwrap_or(260)]
+                );
+
+                mimic_log!(
+                    "FS telemetry: pid={}, event={:?}, path='{}'",
+                    fs_event.process_id,
+                    fs_event.event_type,
+                    path,
+                );
+            }
+            _ => {
+                let payload_len = (message_buffer.message.payload_len as usize)
+                    .min(FILTER_PORT_PAYLOAD_SIZE);
+                let payload = &message_buffer.message.payload[..payload_len];
+                let payload_text = String::from_utf8_lossy(payload);
+
+                mimic_log!(
+                    "Filter message received: id={}, reply_len={}, kind={:?}, payload_len={}, text='{}'",
+                    message_buffer.header.MessageId,
+                    message_buffer.header.ReplyLength,
+                    message_buffer.message.kind,
+                    payload_len,
+                    payload_text,
+                );
+            }
+        }
     }
 
     Ok(())
