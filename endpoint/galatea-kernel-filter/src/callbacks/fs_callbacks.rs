@@ -3,7 +3,7 @@ use crate::ffi::flt::{
     FLT_PREOP_SUCCESS_WITH_CALLBACK, FLT_RELATED_OBJECTS, FltPostopCallbackStatus,
     FltPreopCallbackStatus,
 };
-use crate::io::filter_port::send_fs_telemetry;
+use crate::io::filter_port::{is_agent_process, send_fs_telemetry};
 
 use core::ffi::c_void;
 use galatea_shared::filter_port::{FSEventType, GalateaFSEvent};
@@ -57,6 +57,10 @@ pub unsafe extern "C" fn pre_write(
 ) -> FltPreopCallbackStatus {
     // Safety: flt_objects is valid for the lifetime of this callback.
     unsafe {
+        if is_agent_process() {
+            return FLT_PREOP_SUCCESS_NO_CALLBACK;
+        }
+
         let file_obj = (*flt_objects).file_object;
         if !file_obj.is_null() && !(*file_obj).FileName.Buffer.is_null() {
             let file_name = &(*file_obj).FileName;

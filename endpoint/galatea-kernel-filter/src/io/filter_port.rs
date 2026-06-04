@@ -1,17 +1,21 @@
 use core::ffi::c_void;
 use core::ptr::null_mut;
 
-use wdk_sys::ntddk::DbgPrint;
+use wdk_sys::ntddk::{DbgPrint, PsGetCurrentProcessId};
 use wdk_sys::{
-    NTSTATUS, STATUS_ACCESS_DENIED, STATUS_INVALID_PARAMETER, STATUS_SUCCESS, UNICODE_STRING,
+    LARGE_INTEGER, NTSTATUS, STATUS_ACCESS_DENIED, STATUS_INVALID_PARAMETER, STATUS_SUCCESS,
+    UNICODE_STRING,
 };
 
 use crate::ffi::flt::{
-    FLT_PORT_ALL_ACCESS, FltBuildDefaultSecurityDescriptor, FltCloseClientPort, FltCloseCommunicationPort, FltCreateCommunicationPort, FltFreeSecurityDescriptor, FltSendMessage, OBJ_CASE_INSENSITIVE, OBJ_KERNEL_HANDLE, PfltFilter, PfltPort, SecurityDescriptor, initialize_object_attributes
+    initialize_object_attributes, FltBuildDefaultSecurityDescriptor, FltCloseClientPort,
+    FltCloseCommunicationPort, FltCreateCommunicationPort, FltFreeSecurityDescriptor,
+    FltSendMessage, PfltFilter, PfltPort, SecurityDescriptor, FLT_PORT_ALL_ACCESS,
+    OBJ_CASE_INSENSITIVE, OBJ_KERNEL_HANDLE,
 };
 
 use galatea_shared::filter_port::{
-    FILTER_PORT_PAYLOAD_SIZE, GalateaFilterMessage, GalateaFilterMessageKind, GalateaFSEvent,
+    GalateaFSEvent, GalateaFilterMessage, GalateaFilterMessageKind, FILTER_PORT_PAYLOAD_SIZE,
 };
 
 macro_rules! w {
@@ -33,6 +37,10 @@ macro_rules! w {
 static mut SERVER_PORT: PfltPort = null_mut();
 static mut CLIENT_PORT: PfltPort = null_mut();
 
+/// PID of the connected agent process. Set in [`connect_notify`], cleared in
+/// [`disconnect_notify`]. A value of `0` means no agent is connected.
+static mut AGENT_PID: usize = 0;
+
 const PORT_NAME: &[u16] = w!("\\GalateaFilterPort");
 
 unsafe extern "C" fn connect_notify(
@@ -51,11 +59,15 @@ unsafe extern "C" fn connect_notify(
         }
 
         CLIENT_PORT = client_port;
+        AGENT_PID = PsGetCurrentProcessId() as usize;
         if !connection_port_cookie.is_null() {
             *connection_port_cookie = client_port as *mut c_void;
         }
 
-        DbgPrint(b"GalateaFlt: filter port client connected\n\0".as_ptr() as *const i8);
+        DbgPrint(
+            b"GalateaFlt: filter port client connected (pid=%llu)\n\0".as_ptr() as *const i8,
+            AGENT_PID as u64,
+        );
         STATUS_SUCCESS
     }
 }
@@ -69,6 +81,7 @@ unsafe extern "C" fn disconnect_notify(_connection_cookie: *mut c_void) {
         }
 
         DbgPrint(b"GalateaFlt: filter port client disconnected\n\0".as_ptr() as *const i8);
+        AGENT_PID = 0;
         FltCloseClientPort(crate::FILTER_HANDLE, &raw mut CLIENT_PORT);
     }
 }
@@ -180,11 +193,21 @@ pub(crate) unsafe fn teardown_port(filter: PfltFilter) {
     }
 }
 
+/// Returns `true` when the current thread belongs to the connected agent
+/// process. Used by callbacks to skip the agent's own I/O and avoid
+/// re-entrancy noise.
+pub(crate) unsafe fn is_agent_process() -> bool {
+    unsafe {
+        let pid = PsGetCurrentProcessId() as usize;
+        AGENT_PID != 0 && pid == AGENT_PID
+    }
+}
 
 /// Sends a filesystem telemetry event to the agent.
 pub(crate) unsafe fn send_fs_telemetry(event: *const GalateaFSEvent) -> NTSTATUS {
-    /// `event` must point to a valid, properly aligned [`GalateaFSEvent`].
-    /// The filter communication port must be initialized with a connected client. As this should only be called by the callbacks this is a given
+    // Safety: `event` must point to a valid, properly aligned [`GalateaFSEvent`].
+    // The filter communication port must be initialized with a connected
+    // client. As this should only be called by the callbacks this is a given.
     unsafe {
         if crate::FILTER_HANDLE.is_null() || CLIENT_PORT.is_null() {
             return STATUS_INVALID_PARAMETER;
@@ -200,6 +223,8 @@ pub(crate) unsafe fn send_fs_telemetry(event: *const GalateaFSEvent) -> NTSTATUS
             message.payload_len as usize,
         );
 
+        let mut timeout = LARGE_INTEGER { QuadPart: 0 };
+
         FltSendMessage(
             crate::FILTER_HANDLE,
             &raw mut CLIENT_PORT,
@@ -207,7 +232,7 @@ pub(crate) unsafe fn send_fs_telemetry(event: *const GalateaFSEvent) -> NTSTATUS
             core::mem::size_of::<GalateaFilterMessage>() as u32,
             null_mut(),
             null_mut(),
-            null_mut(),
+            &raw mut timeout,
         )
     }
 }
