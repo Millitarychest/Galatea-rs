@@ -87,14 +87,18 @@ pub mod filter_port {
     #[repr(C)]
     #[derive(Clone, Copy, Debug)]
     pub struct GalateaFSEvent {
-        /// Process ID
+        /// Process ID as Fallback
         pub process_id: u64,
+        /// Process Start ID, this should be a quasi uuid
+        pub process_start_key: u64,
         /// Request ID used for tracking of verdicts in kernel mode
         pub request_id: u64,
         /// Type of the File System Event
         pub event_type: FSEventType,
         /// Targeted File Path
         pub file_path: [u16; 260],
+        /// NTFS file index
+        pub file_index: u64
     }
 
     /// Enum used to represent the different actions that might be taken on a File

@@ -8,6 +8,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use std::thread::{self, JoinHandle};
+use std::time::SystemTime;
 
 use galatea_shared::filter_port::{GalateaFSEvent, GalateaFilterMessageKind};
 use galatea_shared::{
@@ -26,6 +27,8 @@ use windows::{
     core::w,
 };
 
+use crate::FILE_CONTEXT_CACHE;
+use crate::cache::file_context_cache::{self, FileContextCache, FileTelemetryUpdate};
 use crate::communication::ipc::SendHandle;
 
 pub fn ks_send_verdict(handle: HANDLE, mut verdict: GalateaVerdict) {
@@ -167,12 +170,10 @@ fn kf_listen_for_messages(port_handle: HANDLE, running: Arc<AtomicBool>) -> Resu
         match message_buffer.message.kind {
             GalateaFilterMessageKind::FileTelemetry => {
                 let payload = &message_buffer.message.payload;
-                let mut fs_event = GalateaFSEvent {
-                    process_id: 0,
-                    request_id: 0,
-                    event_type: galatea_shared::filter_port::FSEventType::FileOpen,
-                    file_path: [0; 260],
-                };
+                // Safety: GalateaFSEvent is repr(C) and trivially copy; the
+                // kernel guarantees the payload is a valid, fully-written struct
+                // of exactly size_of::<GalateaFSEvent>() bytes. 
+                let mut fs_event: GalateaFSEvent = unsafe { core::mem::zeroed() };
                 let copy_len = (message_buffer.message.payload_len as usize)
                     .min(core::mem::size_of::<GalateaFSEvent>());
                 unsafe {
@@ -190,11 +191,45 @@ fn kf_listen_for_messages(port_handle: HANDLE, running: Arc<AtomicBool>) -> Resu
                 );
 
                 mimic_log!(
-                    "FS telemetry: pid={}, event={:?}, path='{}'",
+                    "FS telemetry: pid={}, start_key={:#x}, file_index={:#x}, event={:?}, path='{}'",
                     fs_event.process_id,
+                    fs_event.process_start_key,
+                    fs_event.file_index,
                     fs_event.event_type,
                     path,
                 );
+
+                // file_index of 0 means the kernel could not obtain it (e.g. FAT
+                // volume); in that case fall back to the path-based cache key.
+                let file_index = if fs_event.file_index != 0 {
+                    Some(fs_event.file_index)
+                } else {
+                    None
+                };
+
+                match fs_event.event_type {
+                    galatea_shared::filter_port::FSEventType::FileOpen => {}
+                    galatea_shared::filter_port::FSEventType::FileCreate => {}
+                    galatea_shared::filter_port::FSEventType::FileWrite => {
+                        let key = file_context_cache::FileContextKey::from_identity(&path, file_index);
+                        let update = FileTelemetryUpdate {
+                            normalized_file_path: Some(path),
+                            file_index,
+                            // Process image resolved later once the process
+                            // context cache is wired up TODO: change to get image from context
+                            last_write_process: None,
+                            last_write_time: Some(SystemTime::now()),
+                            last_rename_time: None,
+                            original_name: None,
+                        };
+                        mimic_log!("[FILE_CONTEXT] write_telemetry key={key:?}");
+
+                        let fs_cache = FILE_CONTEXT_CACHE.get_or_init(FileContextCache::new);
+                        fs_cache.write_telemetry(key, update);
+                    }
+                    galatea_shared::filter_port::FSEventType::FileModify => {}
+                    galatea_shared::filter_port::FSEventType::FileDelete => {}
+                }
             }
             _ => {
                 let payload_len = (message_buffer.message.payload_len as usize)

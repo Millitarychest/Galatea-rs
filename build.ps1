@@ -134,7 +134,7 @@ Copy-Item $GuiBuildPath $GuiDistPath -Force
 
 # --- Copy ML assets
 $ModelInPath = "$ModelPath\$ModelName"
-$ModelFInPath = "$ModelPath\$ModelName"
+$ModelFInPath = "$ModelPath\$ModelFName"
 $ModelOutPath = "$DistEndpointDir\$ModelName"
 $ModelFOutPath = "$DistEndpointDir\$ModelName"
 Write-Host "`n[i] Gathering provided model..." -ForegroundColor Cyan

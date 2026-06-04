@@ -226,8 +226,8 @@ pub struct FLT_RELATED_OBJECTS {
     pub _filter: *const c_void,
     /// Opaque volume pointer.
     pub _volume: *const c_void,
-    /// Opaque instance pointer.
-    pub _instance: *const c_void,
+    /// Opaque filter instance pointer — required by [`FltQueryInformationFile`].
+    pub instance: *const c_void,
     /// The file object for the current operation.
     pub file_object: *mut FILE_OBJECT,
 }
@@ -268,6 +268,24 @@ pub const fn initialize_object_attributes(
         security_descriptor,
         security_quality_of_service: null_mut(),
     }
+}
+
+// ---- Supporting types ----
+
+/// `FILE_INFORMATION_CLASS` value for retrieving the NTFS file index.
+///
+/// Corresponds to `FileInternalInformation` (6) from `ntifs.h`.
+pub const FILE_INTERNAL_INFORMATION_CLASS: u32 = 6;
+
+/// Result buffer for a `FileInternalInformation` query.
+///
+/// The `index_number` field holds the 64-bit NTFS file reference number,
+/// equivalent to the value obtained by `GetFileInformationByHandle` in
+/// user-mode.
+#[repr(C)]
+pub struct FILE_INTERNAL_INFORMATION {
+    /// 64-bit NTFS file index (file reference number).
+    pub index_number: i64,
 }
 
 // ---- Function imports ----
@@ -324,4 +342,18 @@ unsafe extern "C" {
 
     /// Frees a descriptor allocated by [`FltBuildDefaultSecurityDescriptor`].
     pub fn FltFreeSecurityDescriptor(security_descriptor: *mut SecurityDescriptor);
+
+    /// Queries information about a file from within a minifilter callback.
+    ///
+    /// Pass [`FILE_INTERNAL_INFORMATION_CLASS`] and a [`FILE_INTERNAL_INFORMATION`]
+    /// buffer to retrieve the stable NTFS file index without opening a new
+    /// handle, avoiding sharing violations and handle-open overhead.
+    pub fn FltQueryInformationFile(
+        instance: *const c_void,
+        file_object: *mut FILE_OBJECT,
+        file_information: *mut c_void,
+        length: u32,
+        file_information_class: u32,
+        length_returned: *mut u32,
+    ) -> NTSTATUS;
 }

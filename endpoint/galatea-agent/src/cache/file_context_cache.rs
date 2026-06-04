@@ -21,7 +21,7 @@ impl FileContextKey {
     pub fn from_identity(path: &str, file_index: Option<u64>) -> Self {
         match file_index {
             Some(index) => Self::FileIndex(index),
-            None => Self::Path(canonicalize_path(path)),
+            None => Self::Path(fsc_canonicalize_path(path)),
         }
     }
 }
@@ -100,7 +100,7 @@ impl FileContext {
 
     fn apply_telemetry(&mut self, update: FileTelemetryUpdate) {
         if let Some(path) = update.normalized_file_path {
-            self.normalized_file_path = Some(canonicalize_path(&path));
+            self.normalized_file_path = Some(fsc_canonicalize_path(&path));
         }
 
         if let Some(file_index) = update.file_index {
@@ -154,7 +154,7 @@ impl FileContextCache {
 
     /// Returns a cloned snapshot for the path fallback key.
     pub fn get_by_path(&self, path: &str) -> Option<FileContext> {
-        self.get(&FileContextKey::Path(canonicalize_path(path)))
+        self.get(&FileContextKey::Path(fsc_canonicalize_path(path)))
     }
 
     /// Inserts or merges partial file telemetry into an existing context.
@@ -213,7 +213,7 @@ impl Default for FileContextCache {
     }
 }
 
-fn canonicalize_path(raw_path: &str) -> String {
+pub fn fsc_canonicalize_path(raw_path: &str) -> String {
     match dunce::canonicalize(raw_path) {
         Ok(path) => path.to_string_lossy().to_string(),
         Err(_) => raw_path.to_string(),

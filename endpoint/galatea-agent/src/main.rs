@@ -34,7 +34,7 @@ mod static_analyzer;
 mod utils;
 
 use crate::{
-    cache::static_analyzer_cache::StaticResultCache, communication::ipc::ipc_server::IpcServer,
+    cache::{file_context_cache::FileContextCache, static_analyzer_cache::StaticResultCache}, communication::ipc::ipc_server::IpcServer,
 };
 use crate::{
     communication::ipc::SendHandle,
@@ -44,6 +44,9 @@ pub use config::*;
 
 static GLOBAL_LISTENER_HANDLE: AtomicUsize = AtomicUsize::new(0);
 static STATIC_RESULT_CACHE: OnceLock<StaticResultCache> = OnceLock::new();
+
+//Context Caches
+static FILE_CONTEXT_CACHE: OnceLock<FileContextCache> = OnceLock::new();
 
 fn main() -> error::Result<()> {
     // Setup file logging
