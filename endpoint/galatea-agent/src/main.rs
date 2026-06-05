@@ -34,7 +34,8 @@ mod static_analyzer;
 mod utils;
 
 use crate::{
-    cache::{file_context_cache::FileContextCache, static_analyzer_cache::StaticResultCache}, communication::ipc::ipc_server::IpcServer,
+    cache::{file_context_cache::FileContextCache, static_analyzer_cache::StaticResultCache},
+    communication::ipc::ipc_server::IpcServer,
 };
 use crate::{
     communication::ipc::SendHandle,
@@ -232,6 +233,8 @@ fn main() -> error::Result<()> {
         mimic_error!("Failed to register with server: {}", e);
     }
 
+    mimic_log!("Entering kernel event wait loop.");
+
     loop {
         let mut event: GalateaEvent = unsafe { std::mem::zeroed() };
         let mut bytes_returned: u32 = 0;
@@ -251,6 +254,15 @@ fn main() -> error::Result<()> {
 
         match result {
             Ok(_) => {
+                if bytes_returned < size_of::<GalateaEvent>() as u32 {
+                    mimic_error!(
+                        "IOCTL_GET_EVENT returned short event buffer: {} bytes (expected {}). Continuing.",
+                        bytes_returned,
+                        size_of::<GalateaEvent>()
+                    );
+                    continue;
+                }
+
                 let worker_handle = safe_handle.clone();
                 let worker_db = db_pool.clone();
                 let worker_sig = sig_engine.clone();
@@ -270,7 +282,8 @@ fn main() -> error::Result<()> {
                 });
             }
             Err(e) => {
-                mimic_error!("DeviceIoControl failed: {:?}", e);
+                mimic_error!("IOCTL_GET_EVENT DeviceIoControl failed: {:?}", e);
+                mimic_error!("Leaving kernel event wait loop; agent will shut down.");
                 break;
             }
         }

@@ -8,15 +8,13 @@ use wdk_sys::{
 };
 
 use crate::ffi::flt::{
-    initialize_object_attributes, FltBuildDefaultSecurityDescriptor, FltCloseClientPort,
+    FLT_PORT_ALL_ACCESS, FltBuildDefaultSecurityDescriptor, FltCloseClientPort,
     FltCloseCommunicationPort, FltCreateCommunicationPort, FltFreeSecurityDescriptor,
-    FltSendMessage, PfltFilter, PfltPort, SecurityDescriptor, FLT_PORT_ALL_ACCESS,
-    OBJ_CASE_INSENSITIVE, OBJ_KERNEL_HANDLE,
+    FltSendMessage, OBJ_CASE_INSENSITIVE, OBJ_KERNEL_HANDLE, PfltFilter, PfltPort,
+    SecurityDescriptor, initialize_object_attributes,
 };
 
-use galatea_shared::filter_port::{
-    GalateaFSEvent, GalateaFilterMessage, GalateaFilterMessageKind, FILTER_PORT_PAYLOAD_SIZE,
-};
+use galatea_shared::filter_port::{GalateaFSEvent, GalateaFilterMessage, GalateaFilterMessageKind};
 
 macro_rules! w {
     ($s:expr) => {{
@@ -88,11 +86,11 @@ unsafe extern "C" fn disconnect_notify(_connection_cookie: *mut c_void) {
 
 unsafe extern "C" fn message_notify(
     port_cookie: *mut c_void,
-    input_buffer: *mut c_void,
-    input_buffer_length: u32,
-    output_buffer: *mut c_void,
-    output_buffer_length: u32,
-    return_output_buffer_length: *mut u32,
+    _input_buffer: *mut c_void,
+    _input_buffer_length: u32,
+    _output_buffer: *mut c_void,
+    _output_buffer_length: u32,
+    _return_output_buffer_length: *mut u32,
 ) -> NTSTATUS {
     // saftey: CLIENT_PORT should always be set at this point as to send a message the client will first have to connect which sets the var
     unsafe {
@@ -223,9 +221,13 @@ pub(crate) unsafe fn send_fs_telemetry(event: *const GalateaFSEvent) -> NTSTATUS
             message.payload_len as usize,
         );
 
-        let mut timeout = LARGE_INTEGER { QuadPart: 0 };
+        // Relative timeout in 100ns units. Keep filesystem callbacks from
+        // blocking indefinitely if user mode disconnects or stops reading.
+        let mut timeout = LARGE_INTEGER {
+            QuadPart: 0,
+        };
 
-        FltSendMessage(
+        let status = FltSendMessage(
             crate::FILTER_HANDLE,
             &raw mut CLIENT_PORT,
             &raw mut message as *mut c_void,
@@ -233,6 +235,15 @@ pub(crate) unsafe fn send_fs_telemetry(event: *const GalateaFSEvent) -> NTSTATUS
             null_mut(),
             null_mut(),
             &raw mut timeout,
-        )
+        );
+
+        if status != STATUS_SUCCESS {
+            DbgPrint(
+                b"GalateaFlt: FltSendMessage telemetry failed 0x%08x\n\0".as_ptr() as *const i8,
+                status,
+            );
+        }
+
+        status
     }
 }

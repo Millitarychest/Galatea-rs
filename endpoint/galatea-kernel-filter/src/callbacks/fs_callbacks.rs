@@ -1,14 +1,14 @@
 use crate::ffi::flt::{
-    FLT_CALLBACK_DATA, FLT_POSTOP_FINISHED_PROCESSING, FLT_PREOP_SUCCESS_NO_CALLBACK,
-    FLT_PREOP_SUCCESS_WITH_CALLBACK, FLT_RELATED_OBJECTS, FltPostopCallbackStatus,
-    FltPreopCallbackStatus,
+    FILE_INTERNAL_INFORMATION, FILE_INTERNAL_INFORMATION_CLASS, FLT_CALLBACK_DATA,
+    FLT_POSTOP_FINISHED_PROCESSING, FLT_PREOP_SUCCESS_NO_CALLBACK, FLT_PREOP_SUCCESS_WITH_CALLBACK,
+    FLT_RELATED_OBJECTS, FltPostopCallbackStatus, FltPreopCallbackStatus, FltQueryInformationFile,
 };
 use crate::io::filter_port::{is_agent_process, send_fs_telemetry};
 
 use core::ffi::c_void;
 use galatea_shared::filter_port::{FSEventType, GalateaFSEvent};
 use wdk_sys::STATUS_SUCCESS;
-use wdk_sys::ntddk::{DbgPrint, PsGetCurrentProcessId, PsGetProcessStartKey};
+use wdk_sys::ntddk::{IoGetCurrentProcess, PsGetCurrentProcessId, PsGetProcessStartKey};
 
 /// Pre-create callback: logs every file open and allows it.
 ///
@@ -67,15 +67,22 @@ pub unsafe extern "C" fn pre_write(
             let copy_len = ((file_name.Length as usize) / 2).min(259);
             let mut file_path = [0u16; 260];
             core::ptr::copy_nonoverlapping(file_name.Buffer, file_path.as_mut_ptr(), copy_len);
-            
+
+            let pid = PsGetCurrentProcessId() as usize as u64;
+
+            //early exit for main system procs? I think it caused a few crashes / hangs by messing with ntuser.dat writes? It shouldnt but ig ill try it
+            if pid <= 4 {
+                return FLT_PREOP_SUCCESS_NO_CALLBACK;
+            }
+
             let event = GalateaFSEvent {
-                // Potentially send PsGetProcessStartKey aswell for better correlation? 
+                // Potentially send PsGetProcessStartKey aswell for better correlation?
                 // would need adjustment of other sensors aswell tho
-                process_id: PsGetCurrentProcessId() as usize as u64,
+                process_id: pid,
                 request_id: 0,
                 event_type: FSEventType::FileWrite,
                 file_path,
-                process_start_key: PsGetProcessStartKey(PsGetCurrentProcess()),
+                process_start_key: PsGetProcessStartKey(IoGetCurrentProcess()),
                 file_index: query_file_index((*flt_objects).instance, file_obj),
             };
 
@@ -104,19 +111,13 @@ pub unsafe extern "C" fn pre_set_info(
     FLT_PREOP_SUCCESS_NO_CALLBACK
 }
 
-
 /// Helper: Queries the NTFS file index for the file object
 /// currently being processed by the filter manager.
 ///
 /// Returns the index on success, or `0` as a sentinel when the query fails
-unsafe fn query_file_index(
-    instance: *const c_void,
-    file_object: *mut wdk_sys::FILE_OBJECT,
-) -> u64 {
-    /// # Safety
-    /// `instance` and `file_object` must be the values received from the active
-    /// `FLT_RELATED_OBJECTS` pointer during a Filter Manager callback — they are
-    /// guaranteed valid for the callback lifetime.
+unsafe fn query_file_index(instance: *const c_void, file_object: *mut wdk_sys::FILE_OBJECT) -> u64 {
+    // Safety: `instance` and `file_object` must be the values received from the
+    // active `FLT_RELATED_OBJECTS` pointer during a Filter Manager callback.
     let mut info = FILE_INTERNAL_INFORMATION { index_number: 0 };
     let mut length_returned: u32 = 0;
 

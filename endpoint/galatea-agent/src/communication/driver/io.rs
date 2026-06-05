@@ -172,7 +172,7 @@ fn kf_listen_for_messages(port_handle: HANDLE, running: Arc<AtomicBool>) -> Resu
                 let payload = &message_buffer.message.payload;
                 // Safety: GalateaFSEvent is repr(C) and trivially copy; the
                 // kernel guarantees the payload is a valid, fully-written struct
-                // of exactly size_of::<GalateaFSEvent>() bytes. 
+                // of exactly size_of::<GalateaFSEvent>() bytes.
                 let mut fs_event: GalateaFSEvent = unsafe { core::mem::zeroed() };
                 let copy_len = (message_buffer.message.payload_len as usize)
                     .min(core::mem::size_of::<GalateaFSEvent>());
@@ -185,9 +185,11 @@ fn kf_listen_for_messages(port_handle: HANDLE, running: Arc<AtomicBool>) -> Resu
                 }
 
                 let path = String::from_utf16_lossy(
-                    &fs_event.file_path[..fs_event.file_path.iter()
+                    &fs_event.file_path[..fs_event
+                        .file_path
+                        .iter()
                         .position(|&c| c == 0)
-                        .unwrap_or(260)]
+                        .unwrap_or(260)],
                 );
 
                 mimic_log!(
@@ -211,7 +213,8 @@ fn kf_listen_for_messages(port_handle: HANDLE, running: Arc<AtomicBool>) -> Resu
                     galatea_shared::filter_port::FSEventType::FileOpen => {}
                     galatea_shared::filter_port::FSEventType::FileCreate => {}
                     galatea_shared::filter_port::FSEventType::FileWrite => {
-                        let key = file_context_cache::FileContextKey::from_identity(&path, file_index);
+                        let key =
+                            file_context_cache::FileContextKey::from_identity(&path, file_index);
                         let update = FileTelemetryUpdate {
                             normalized_file_path: Some(path),
                             file_index,
@@ -232,8 +235,8 @@ fn kf_listen_for_messages(port_handle: HANDLE, running: Arc<AtomicBool>) -> Resu
                 }
             }
             _ => {
-                let payload_len = (message_buffer.message.payload_len as usize)
-                    .min(FILTER_PORT_PAYLOAD_SIZE);
+                let payload_len =
+                    (message_buffer.message.payload_len as usize).min(FILTER_PORT_PAYLOAD_SIZE);
                 let payload = &message_buffer.message.payload[..payload_len];
                 let payload_text = String::from_utf8_lossy(payload);
 
