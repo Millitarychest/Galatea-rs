@@ -7,12 +7,24 @@
 //! Layout and values are taken directly from the Windows 10 26100 WDK headers.
 
 use core::ffi::c_void;
-use wdk_sys::{DRIVER_OBJECT, FILE_OBJECT, IO_STATUS_BLOCK, NTSTATUS};
+use core::ptr::null_mut;
+use wdk_sys::{
+    DRIVER_OBJECT, FILE_OBJECT, HANDLE, IO_STATUS_BLOCK, LARGE_INTEGER, NTSTATUS, UNICODE_STRING,
+};
 
 // ---- Opaque handles ----
 
 /// Opaque filter handle returned by [`FltRegisterFilter`].
 pub type PfltFilter = *mut c_void;
+
+/// Opaque server or client communication port handle.
+pub type PfltPort = *mut c_void;
+
+/// Access mask used by [`FltBuildDefaultSecurityDescriptor`].
+pub type AccessMask = u32;
+
+/// Opaque security descriptor allocated by Filter Manager.
+pub type SecurityDescriptor = c_void;
 
 // ---- Callback return types ----
 
@@ -39,6 +51,18 @@ pub const IRP_MJ_OPERATION_END: u8 = 0x80;
 /// Version value for [`FLT_REGISTRATION::version`].
 pub const FLT_REGISTRATION_VERSION: u16 = 0x0203;
 
+/// `OBJECT_ATTRIBUTES::attributes` flag for case-insensitive name lookup.
+pub const OBJ_CASE_INSENSITIVE: u32 = 0x0000_0040;
+
+/// `OBJECT_ATTRIBUTES::attributes` flag required for kernel-only handles.
+pub const OBJ_KERNEL_HANDLE: u32 = 0x0000_0200;
+
+/// Grants a user-mode client permission to connect to a filter port.
+pub const FLT_PORT_CONNECT: AccessMask = 0x0000_0001;
+
+/// Full access for communication ports built from `FLT_PORT_CONNECT`.
+pub const FLT_PORT_ALL_ACCESS: AccessMask = 0x001f_0000 | FLT_PORT_CONNECT;
+
 // ---- Callback signatures ----
 
 /// Pre-operation callback function pointer.
@@ -62,6 +86,32 @@ pub type PfltPostOperationCallback = Option<
 
 /// Filter-unload callback function pointer.
 pub type PfltFilterUnloadCallback = Option<unsafe extern "C" fn(flags: u32) -> NTSTATUS>;
+
+/// Connection-notification callback for a communication server port.
+pub type PfltConnectNotify = Option<
+    unsafe extern "C" fn(
+        client_port: PfltPort,
+        server_port_cookie: *mut c_void,
+        connection_context: *mut c_void,
+        size_of_context: u32,
+        connection_port_cookie: *mut *mut c_void,
+    ) -> NTSTATUS,
+>;
+
+/// Disconnect-notification callback for a communication client port.
+pub type PfltDisconnectNotify = Option<unsafe extern "C" fn(connection_cookie: *mut c_void)>;
+
+/// Message callback for user-mode `FilterSendMessage` traffic.
+pub type PfltMessageNotify = Option<
+    unsafe extern "C" fn(
+        port_cookie: *mut c_void,
+        input_buffer: *mut c_void,
+        input_buffer_length: u32,
+        output_buffer: *mut c_void,
+        output_buffer_length: u32,
+        return_output_buffer_length: *mut u32,
+    ) -> NTSTATUS,
+>;
 
 // ---- Structures ----
 
@@ -176,10 +226,66 @@ pub struct FLT_RELATED_OBJECTS {
     pub _filter: *const c_void,
     /// Opaque volume pointer.
     pub _volume: *const c_void,
-    /// Opaque instance pointer.
-    pub _instance: *const c_void,
+    /// Opaque filter instance pointer — required by [`FltQueryInformationFile`].
+    pub instance: *const c_void,
     /// The file object for the current operation.
     pub file_object: *mut FILE_OBJECT,
+}
+
+/// Kernel object attributes used when creating a communication server port.
+///
+/// This matches the Windows `OBJECT_ATTRIBUTES` layout used by
+/// `InitializeObjectAttributes`.
+#[repr(C)]
+pub struct OBJECT_ATTRIBUTES {
+    /// Structure size in bytes.
+    pub length: u32,
+    /// Optional root directory handle for relative names.
+    pub root_directory: HANDLE,
+    /// Object name, usually a `\\Name`-style port path.
+    pub object_name: *mut UNICODE_STRING,
+    /// `OBJ_*` attribute flags.
+    pub attributes: u32,
+    /// Optional security descriptor for the created object.
+    pub security_descriptor: *mut SecurityDescriptor,
+    /// Reserved quality-of-service pointer, usually null.
+    pub security_quality_of_service: *mut c_void,
+}
+
+/// Initializes [`OBJECT_ATTRIBUTES`] with the values expected by Filter Manager.
+#[must_use]
+pub const fn initialize_object_attributes(
+    object_name: *mut UNICODE_STRING,
+    attributes: u32,
+    root_directory: HANDLE,
+    security_descriptor: *mut SecurityDescriptor,
+) -> OBJECT_ATTRIBUTES {
+    OBJECT_ATTRIBUTES {
+        length: core::mem::size_of::<OBJECT_ATTRIBUTES>() as u32,
+        root_directory,
+        object_name,
+        attributes,
+        security_descriptor,
+        security_quality_of_service: null_mut(),
+    }
+}
+
+// ---- Supporting types ----
+
+/// `FILE_INFORMATION_CLASS` value for retrieving the NTFS file index.
+///
+/// Corresponds to `FileInternalInformation` (6) from `ntifs.h`.
+pub const FILE_INTERNAL_INFORMATION_CLASS: u32 = 6;
+
+/// Result buffer for a `FileInternalInformation` query.
+///
+/// The `index_number` field holds the 64-bit NTFS file reference number,
+/// equivalent to the value obtained by `GetFileInformationByHandle` in
+/// user-mode.
+#[repr(C)]
+pub struct FILE_INTERNAL_INFORMATION {
+    /// 64-bit NTFS file index (file reference number).
+    pub index_number: i64,
 }
 
 // ---- Function imports ----
@@ -198,4 +304,56 @@ unsafe extern "C" {
 
     /// Unregisters a previously registered minifilter.
     pub fn FltUnregisterFilter(filter: PfltFilter);
+
+    /// Creates a named server port for minifilter to user-mode communication.
+    pub fn FltCreateCommunicationPort(
+        filter: PfltFilter,
+        server_port: *mut PfltPort,
+        object_attributes: *mut OBJECT_ATTRIBUTES,
+        server_port_cookie: *mut c_void,
+        connect_notify_callback: PfltConnectNotify,
+        disconnect_notify_callback: PfltDisconnectNotify,
+        message_notify_callback: PfltMessageNotify,
+        max_connections: i32,
+    ) -> NTSTATUS;
+
+    /// Closes a server communication port created by [`FltCreateCommunicationPort`].
+    pub fn FltCloseCommunicationPort(server_port: PfltPort);
+
+    /// Closes a connected client port and nulls the caller's handle.
+    pub fn FltCloseClientPort(filter: PfltFilter, client_port: *mut PfltPort);
+
+    /// Sends a message to a connected user-mode client port.
+    pub fn FltSendMessage(
+        filter: PfltFilter,
+        client_port: *mut PfltPort,
+        sender_buffer: *mut c_void,
+        sender_buffer_length: u32,
+        reply_buffer: *mut c_void,
+        reply_length: *mut u32,
+        timeout: *mut LARGE_INTEGER,
+    ) -> NTSTATUS;
+
+    /// Allocates a default security descriptor for a communication server port.
+    pub fn FltBuildDefaultSecurityDescriptor(
+        security_descriptor: *mut *mut SecurityDescriptor,
+        desired_access: AccessMask,
+    ) -> NTSTATUS;
+
+    /// Frees a descriptor allocated by [`FltBuildDefaultSecurityDescriptor`].
+    pub fn FltFreeSecurityDescriptor(security_descriptor: *mut SecurityDescriptor);
+
+    /// Queries information about a file from within a minifilter callback.
+    ///
+    /// Pass [`FILE_INTERNAL_INFORMATION_CLASS`] and a [`FILE_INTERNAL_INFORMATION`]
+    /// buffer to retrieve the stable NTFS file index without opening a new
+    /// handle, avoiding sharing violations and handle-open overhead.
+    pub fn FltQueryInformationFile(
+        instance: *const c_void,
+        file_object: *mut FILE_OBJECT,
+        file_information: *mut c_void,
+        length: u32,
+        file_information_class: u32,
+        length_returned: *mut u32,
+    ) -> NTSTATUS;
 }

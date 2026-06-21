@@ -39,6 +39,85 @@ pub struct GalateaVerdict {
     pub allow: bool,
 }
 
+// Agent and Filter
+/// Module containing communication-port structures used by the filesystem filter.
+pub mod filter_port {
+    /// Maximum payload bytes carried by one filter communication-port message.
+    pub const FILTER_PORT_PAYLOAD_SIZE: usize = 1024;
+
+    /// Message kind sent over the filter communication port.
+    #[repr(u32)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum GalateaFilterMessageKind {
+        /// Raw proof-of-concept payload.
+        Raw = 0,
+        /// Filesystem telemetry payload.
+        FileTelemetry = 1,
+    }
+
+    impl Default for GalateaFilterMessageKind {
+        fn default() -> Self {
+            Self::Raw
+        }
+    }
+
+    /// Message payload sent from the filesystem filter to the agent.
+    #[repr(C)]
+    #[derive(Clone, Copy, Debug)]
+    pub struct GalateaFilterMessage {
+        /// Message kind discriminator.
+        pub kind: GalateaFilterMessageKind,
+        /// Number of valid bytes in [`payload`](Self::payload).
+        pub payload_len: u32,
+        /// Fixed-size payload buffer.
+        pub payload: [u8; FILTER_PORT_PAYLOAD_SIZE],
+    }
+
+    impl Default for GalateaFilterMessage {
+        fn default() -> Self {
+            Self {
+                kind: GalateaFilterMessageKind::Raw,
+                payload_len: 0,
+                payload: [0; FILTER_PORT_PAYLOAD_SIZE],
+            }
+        }
+    }
+    
+    /// Struct used to send File System Events via IOCTL
+    #[repr(C)]
+    #[derive(Clone, Copy, Debug)]
+    pub struct GalateaFSEvent {
+        /// Process ID as Fallback
+        pub process_id: u64,
+        /// Process Start ID, this should be a quasi uuid
+        pub process_start_key: u64,
+        /// Request ID used for tracking of verdicts in kernel mode
+        pub request_id: u64,
+        /// Type of the File System Event
+        pub event_type: FSEventType,
+        /// Targeted File Path
+        pub file_path: [u16; 260],
+        /// NTFS file index
+        pub file_index: u64
+    }
+
+    /// Enum used to represent the different actions that might be taken on a File
+    #[repr(C)]
+    #[derive(Clone, Copy, Debug)]
+    pub enum FSEventType {
+        /// A file handle was opened
+        FileOpen,
+        /// A file was created
+        FileCreate,
+        /// A file was written to
+        FileWrite,
+        /// A file was renamed or its Metadata was changed
+        FileModify,
+        /// A file was marked for deletion
+        FileDelete,
+    }
+}
+
 // Agent and Client
 /// Module containing usermode IPC definitions
 #[cfg(any(feature = "client_ipc", feature = "agent_ipc"))]
@@ -56,7 +135,6 @@ pub mod ipc {
     pub const PIPE_BUFFER_SIZE: u32 = 65536; // 64KB buffer
     /// Named Pipe Configuration item "timeout" used for agent - client IPC
     pub const PIPE_TIMEOUT_MS: u32 = 5000;
-
 
     /// Struct used in agent IPC broadcast, containing all relavent detection information
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -155,7 +233,7 @@ pub mod ipc {
         pub packer_name: Option<String>,
         /// Section with RWX permission found
         pub has_rwx_sections: bool,
-        /// is the entropy unusual 
+        /// is the entropy unusual
         pub high_entropy: bool,
         /// Imphash of the binary
         pub imphash: Option<String>,
@@ -190,15 +268,15 @@ pub mod ipc {
         Detection(DetectionEvent),
 
         /// Agent status update
-        StatusUpdate { 
+        StatusUpdate {
             /// Message - to be defined
-            message: String 
+            message: String,
         },
 
         /// Configuration change notification
-        ConfigUpdate { 
+        ConfigUpdate {
             /// Message - to be defined
-            message: String 
+            message: String,
         },
     }
 }

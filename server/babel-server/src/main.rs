@@ -1,35 +1,44 @@
-use std::{net::SocketAddr, path::PathBuf};
-use clap::Parser;
 use axum::{
     Router,
     routing::{get, post},
 };
+use clap::Parser;
+use std::{net::SocketAddr, path::PathBuf};
 use tokio::time::{interval, sleep};
 use tower_http::services::ServeDir;
 
-use crate::{routes::{agent, api, dashboard, events}, state::{AppContext, set_startup_config}};
+use crate::{
+    routes::{agent, api, dashboard, events},
+    state::{AppContext, set_startup_config},
+};
 
 mod config;
-mod state;
-mod routes;
 mod db;
+mod routes;
+mod state;
 mod utils;
 
 /// Background task to mark stale agents as offline
 async fn stale_agent_monitor() {
     let mut ticker = interval(config::HEARTBEAT_INTERVAL);
-    
+
     loop {
         ticker.tick().await;
 
         let context = match AppContext::ensure_global() {
             Ok(context) => context,
             Err(e) => {
-                mimic_core::mimic_log!("Skipping stale monitor tick: failed to get AppContext: {}", e);
+                mimic_core::mimic_log!(
+                    "Skipping stale monitor tick: failed to get AppContext: {}",
+                    e
+                );
                 continue;
             }
         };
-        match db::agent_db::mark_stale_agents_offline(&context.db_pool, config::AGENT_OFFLINE_TIMEOUT) {
+        match db::agent_db::mark_stale_agents_offline(
+            &context.db_pool,
+            config::AGENT_OFFLINE_TIMEOUT,
+        ) {
             Ok(count) if count > 0 => {
                 mimic_core::mimic_log!("Marked {} agent(s) as offline (no heartbeat)", count);
             }
@@ -51,7 +60,6 @@ struct Args {
     port: Option<u16>,
 }
 
-
 fn static_dir() -> PathBuf {
     std::env::current_exe()
         .ok()
@@ -65,7 +73,7 @@ async fn main() {
     let args = Args::parse();
     let port: u16 = match args.port {
         Some(inner) => inner,
-        None =>  config::SERVER_PORT,
+        None => config::SERVER_PORT,
     };
 
     if let Err(e) = set_startup_config(args.db_path.clone(), port) {
@@ -98,7 +106,6 @@ async fn main() {
 
     let socket_addr = SocketAddr::from((config::SERVER_INTERFACE, port));
 
-
     tokio::spawn(stale_agent_monitor());
 
     let app = Router::new()
@@ -110,7 +117,10 @@ async fn main() {
         .route("/api/v1/agents/register", post(api::handle_register))
         .route("/api/v1/agents/{id}/heartbeat", post(api::handle_heartbeat))
         .route("/api/v1/agents/{id}/telemetry", post(api::handle_telemetry))
-        .route("/api/v1/agents/{id}/commands/{cmd_id}/ack", post(api::handle_command_ack))
+        .route(
+            "/api/v1/agents/{id}/commands/{cmd_id}/ack",
+            post(api::handle_command_ack),
+        )
         // Static files
         .nest_service("/static", ServeDir::new(static_dir()));
 

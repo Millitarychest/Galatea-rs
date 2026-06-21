@@ -23,7 +23,9 @@ fn context_or_503() -> Result<&'static AppContext, (StatusCode, Json<Value>)> {
 }
 
 /// POST /api/v1/agents/register
-pub async fn handle_register(Json(registration): Json<AgentRegistration>) -> (StatusCode, Json<serde_json::Value>) {
+pub async fn handle_register(
+    Json(registration): Json<AgentRegistration>,
+) -> (StatusCode, Json<serde_json::Value>) {
     let context = match context_or_503() {
         Ok(context) => context,
         Err(response) => return response,
@@ -67,9 +69,9 @@ pub async fn handle_heartbeat(
             Json(json!({ "error": "Invalid PSK" })),
         );
     }
-    
+
     let agent_id = body.uuid.to_string();
-    if id != agent_id{
+    if id != agent_id {
         return (
             StatusCode::UNAUTHORIZED,
             Json(json!({ "error": "Invalid Json-Body" })),
@@ -135,11 +137,8 @@ pub async fn handle_telemetry(
         );
     }
 
-    let accepted = match db::telemetry_db::insert_events(
-        &context.db_pool,
-        &agent_id,
-        &body.events,
-    ) {
+    let accepted = match db::telemetry_db::insert_events(&context.db_pool, &agent_id, &body.events)
+    {
         Ok(inserted) => inserted,
         Err(e) => {
             return (

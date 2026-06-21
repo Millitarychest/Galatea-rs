@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 use core::fmt;
-use std::any::type_name;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::any::type_name;
 
 /// Wrapper type changing the default debug output to redact the value in logging
 #[derive(Default, Hash, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
@@ -150,7 +150,6 @@ pub fn expose_secret<S: Serializer, T: Serialize>(
         .expose_via(Secret::expose_secret)
         .serialize(serializer)
 }
-
 
 /// Serialize a redacted [Secret] without exposing the contained data.
 ///

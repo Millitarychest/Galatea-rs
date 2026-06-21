@@ -1,4 +1,7 @@
-use std::{fs::File, io::{BufRead, BufReader}};
+use std::{
+    fs::File,
+    io::{BufRead, BufReader},
+};
 
 use goblin::pe::PE;
 use mimic_core::{error, mimic_log};
@@ -11,12 +14,14 @@ pub struct PackSignature {
 }
 
 pub struct PackerSignatureEngine {
-    signatures: Vec<PackSignature>
+    signatures: Vec<PackSignature>,
 }
 
 impl PackerSignatureEngine {
     pub fn new() -> Self {
-        Self { signatures: Vec::new() }
+        Self {
+            signatures: Vec::new(),
+        }
     }
 
     pub fn load(&mut self, path: &str) -> error::Result<()> {
@@ -34,7 +39,7 @@ impl PackerSignatureEngine {
             if text.is_empty() || text.starts_with(';') {
                 continue;
             }
-        
+
             if text.starts_with('[') && text.ends_with(']') {
                 if !current_name.is_empty() && !current_pat.is_empty() {
                     self.signatures.push(PackSignature {
@@ -44,7 +49,7 @@ impl PackerSignatureEngine {
                     });
                 }
 
-                current_name = text[1..text.len()-1].to_string();
+                current_name = text[1..text.len() - 1].to_string();
                 current_pat = Vec::new();
                 current_ep_only = true;
                 continue;
@@ -57,10 +62,10 @@ impl PackerSignatureEngine {
                 match key.as_str() {
                     "signature" => {
                         current_pat = parse_pattern(value);
-                    },
+                    }
                     "ep_only" => {
                         current_ep_only = value.to_lowercase() == "true";
-                    },
+                    }
                     _ => {}
                 }
             }
@@ -93,13 +98,17 @@ impl PackerSignatureEngine {
 
         for sig in &self.signatures {
             let target_slice = if sig.ep_only {
-                if sig.pattern.len() > ep_data.len() { continue; }
+                if sig.pattern.len() > ep_data.len() {
+                    continue;
+                }
                 ep_data
             } else {
-                if sig.pattern.len() > file_data.len() { continue; }
-                file_data 
+                if sig.pattern.len() > file_data.len() {
+                    continue;
+                }
+                file_data
             };
-        
+
             if match_pattern(target_slice, &sig.pattern) {
                 return Some(sig.name.clone());
             }
@@ -109,9 +118,9 @@ impl PackerSignatureEngine {
     }
 }
 
-
 fn parse_pattern(hex_str: &str) -> Vec<Option<u8>> {
-    hex_str.split_whitespace()
+    hex_str
+        .split_whitespace()
         .map(|s| {
             if s == "??" {
                 None
@@ -133,7 +142,7 @@ fn match_pattern(data: &[u8], pattern: &[Option<u8>]) -> bool {
                 if data[i] != *b {
                     return false;
                 }
-            },
+            }
             None => continue,
         }
     }
@@ -142,11 +151,11 @@ fn match_pattern(data: &[u8], pattern: &[Option<u8>]) -> bool {
 
 fn find_entry_point_offset(pe: &PE) -> Option<usize> {
     let entry_point_rva = pe.entry;
-    
+
     for section in &pe.sections {
         let v_start = section.virtual_address as usize;
         let v_size = section.virtual_size as usize;
-        
+
         if entry_point_rva as usize >= v_start && (entry_point_rva as usize) < v_start + v_size {
             let offset_in_section = (entry_point_rva as usize) - v_start;
             let raw_ptr = section.pointer_to_raw_data as usize;

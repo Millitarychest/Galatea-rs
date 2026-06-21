@@ -5,16 +5,17 @@ use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::OptionalExtension;
 
-
 pub type DbPool = Pool<SqliteConnectionManager>;
 
-pub fn init_db_pool(db_path: &str) -> error::Result<DbPool>{
+pub fn init_db_pool(db_path: &str) -> error::Result<DbPool> {
     mimic_log!("Initializing Database at: {}", db_path);
 
     let manager = SqliteConnectionManager::file(Path::new(db_path));
     let pool = Pool::builder().max_size(16).build(manager)?;
 
-    let conn = pool.get().map_err(|e| format!("Failed to get DB conn: {}", e))?;
+    let conn = pool
+        .get()
+        .map_err(|e| format!("Failed to get DB conn: {}", e))?;
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS signatures (
@@ -24,7 +25,8 @@ pub fn init_db_pool(db_path: &str) -> error::Result<DbPool>{
             meta TEXT
         )",
         [],
-    ).map_err(|e| format!("Schema init failed: {}", e))?;
+    )
+    .map_err(|e| format!("Schema init failed: {}", e))?;
 
     Ok(pool)
 }
@@ -33,8 +35,7 @@ pub fn init_db_pool(db_path: &str) -> error::Result<DbPool>{
 pub enum IocType {
     Md5Hash,
 
-
-    Unknown
+    Unknown,
 }
 
 pub struct SignatureRecord {
@@ -44,7 +45,7 @@ pub struct SignatureRecord {
     pub meta: String,
 }
 
-pub fn check_signature(pool: &DbPool, hash: &str)-> Option<SignatureRecord>{
+pub fn check_signature(pool: &DbPool, hash: &str) -> Option<SignatureRecord> {
     let conn = match pool.get() {
         Ok(c) => c,
         Err(e) => {
@@ -53,33 +54,36 @@ pub fn check_signature(pool: &DbPool, hash: &str)-> Option<SignatureRecord>{
         }
     };
 
-    let mut stmt = match conn.prepare("SELECT hash, type, verdict, meta FROM signatures WHERE hash = ?1") {
-        Ok(s) => s,
-        Err(e) => {
-            mimic_log!("[DB-ERR] Prepare failed: {}", e);
-            return None;
-        }
-    };
-
-    let result = stmt.query_row([hash], |row|{
-        let raw_ioc: i32 = row.get(1)?; 
-        let ioc = match raw_ioc {
-            0 => IocType::Md5Hash,
-            _ => IocType::Unknown
+    let mut stmt =
+        match conn.prepare("SELECT hash, type, verdict, meta FROM signatures WHERE hash = ?1") {
+            Ok(s) => s,
+            Err(e) => {
+                mimic_log!("[DB-ERR] Prepare failed: {}", e);
+                return None;
+            }
         };
-        Ok(SignatureRecord {
-            hash: row.get(0)?,
-            ioc_type: ioc,
-            verdict: row.get(2)?,
-            meta: row.get(3)?,
+
+    let result = stmt
+        .query_row([hash], |row| {
+            let raw_ioc: i32 = row.get(1)?;
+            let ioc = match raw_ioc {
+                0 => IocType::Md5Hash,
+                _ => IocType::Unknown,
+            };
+            Ok(SignatureRecord {
+                hash: row.get(0)?,
+                ioc_type: ioc,
+                verdict: row.get(2)?,
+                meta: row.get(3)?,
+            })
         })
-    }).optional();
+        .optional();
 
     match result {
         Ok(opt) => opt,
         Err(e) => {
             mimic_error!("[DB-ERR] Query failed: {}", e);
             None
-        },
+        }
     }
 }

@@ -1,11 +1,12 @@
-use babel_api_definition::{AgentAuthentication, AgentHostInfo, AgentRegistration, secrets::Secret};
+use babel_api_definition::{
+    AgentAuthentication, AgentHostInfo, AgentRegistration, secrets::Secret,
+};
 use mimic_core::{error, mimic_log};
 use uuid::Uuid;
 
 use crate::config;
 
-
-pub fn register_with_server(server_uri: &str)-> error::Result<()>{
+pub fn register_with_server(server_uri: &str) -> error::Result<()> {
     mimic_log!("----------------------------------------------------");
     mimic_log!("Registering with server");
     let auth = Secret::new(AgentAuthentication {

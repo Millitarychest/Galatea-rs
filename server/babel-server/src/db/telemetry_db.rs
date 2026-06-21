@@ -48,7 +48,10 @@ pub fn insert_events(
     Ok(inserted)
 }
 
-pub fn get_recent_events(pool: &super::DbPool, limit: usize) -> error::Result<Vec<TelemetryListItem>> {
+pub fn get_recent_events(
+    pool: &super::DbPool,
+    limit: usize,
+) -> error::Result<Vec<TelemetryListItem>> {
     let conn = pool.get()?;
     let mut stmt = conn.prepare(
         "SELECT

@@ -82,11 +82,23 @@ fn render_event_row(
             match process.verdict {
                 TelemetryVerdict::Allowed => {
                     *allowed_count += 1;
-                    (name, process.process_id.to_string(), score, "allowed", "allowed")
+                    (
+                        name,
+                        process.process_id.to_string(),
+                        score,
+                        "allowed",
+                        "allowed",
+                    )
                 }
                 TelemetryVerdict::Blocked => {
                     *blocked_count += 1;
-                    (name, process.process_id.to_string(), score, "blocked", "blocked")
+                    (
+                        name,
+                        process.process_id.to_string(),
+                        score,
+                        "blocked",
+                        "blocked",
+                    )
                 }
             }
         }

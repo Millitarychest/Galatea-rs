@@ -6,10 +6,12 @@ $ErrorActionPreference = "Stop"
 
 # --- CONFIGURATION ---
 $DriverPath = "endpoint\galatea-kernel-sensor"
+$FilterPath = "endpoint\galatea-kernel-filter"
 $DistEndpointDir = "target\dist\endpoint"
 $DistServerDir = "target\dist\server"
 
 $DriverName = "galatea_kernel_sensor"
+$FilterName = "galatea_kernel_filter"
 $AgentName = "galatea-agent.exe"
 $HookDllName = "galatea_userland_hooks.dll"
 $GuiName = "galatea-client.exe"
@@ -54,15 +56,49 @@ Pop-Location
 Write-Host "[>>] Moving and renaming artifact..."
 $DllPath = "$DriverTargetSourceDir\galatea_kernel_sensor_package\*"
 
-if (!(Test-Path $DistEndpointDir)) {
-    New-Item -ItemType Directory -Force -Path $DistEndpointDir | Out-Null
+$DistEndpointDriverDir = "$DistEndpointDir\driver"
+
+if (!(Test-Path $DistEndpointDriverDir)) {
+    New-Item -ItemType Directory -Force -Path $DistEndpointDriverDir | Out-Null
 }
 
 if (Test-Path $DllPath) {
-    Copy-Item -Path $DllPath -Destination $DistEndpointDir -Force -Recurse
-    Write-Host "[+] Driver built at: $DistEndpointDir" -ForegroundColor Green
+    Copy-Item -Path $DllPath -Destination $DistEndpointDriverDir -Force -Recurse
+    Write-Host "[+] Driver built at: $DistEndpointDriverDir" -ForegroundColor Green
 } else {
     Write-Error "[!] Build finished but output file not found at $DllPath"
+    exit 1
+}
+
+# --- Filter build
+Write-Host "`n[i] Starting Galatea Filter Build..." -ForegroundColor Cyan
+Push-Location $FilterPath
+try {
+    Write-Host "[>>] Compiling Kernel Filter..."
+    # Invoke-Expression to handle the variable arguments cleanly
+    Invoke-Expression "cargo make $CargoMakeProfile"
+}
+catch {
+    Write-Error "[!] Compilation Failed!"
+    Pop-Location
+    exit 1
+}
+Pop-Location
+
+Write-Host "[>>] Moving and renaming artifact..."
+$FilterDllPath = "$DriverTargetSourceDir\galatea_kernel_filter_package\*"
+
+$DistEndpointFilterDir = "$DistEndpointDir\filter"
+
+if (!(Test-Path $DistEndpointFilterDir)) {
+    New-Item -ItemType Directory -Force -Path $DistEndpointFilterDir | Out-Null
+}
+
+if (Test-Path $FilterDllPath) {
+    Copy-Item -Path $FilterDllPath -Destination $DistEndpointFilterDir -Force -Recurse
+    Write-Host "[+] Driver built at: $DistEndpointFilterDir" -ForegroundColor Green
+} else {
+    Write-Error "[!] Build finished but output file not found at $FilterDllPath"
     exit 1
 }
 
@@ -98,7 +134,7 @@ Copy-Item $GuiBuildPath $GuiDistPath -Force
 
 # --- Copy ML assets
 $ModelInPath = "$ModelPath\$ModelName"
-$ModelFInPath = "$ModelPath\$ModelName"
+$ModelFInPath = "$ModelPath\$ModelFName"
 $ModelOutPath = "$DistEndpointDir\$ModelName"
 $ModelFOutPath = "$DistEndpointDir\$ModelName"
 Write-Host "`n[i] Gathering provided model..." -ForegroundColor Cyan

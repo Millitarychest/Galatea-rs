@@ -1,7 +1,7 @@
 use chrono::Local;
+use galatea_shared::ipc::{DetectionEvent, Verdict};
 use iced::widget::{Column, button, column, container, row, scrollable, text, text_input};
 use iced::{Element, Length, Padding, Theme};
-use galatea_shared::ipc::{DetectionEvent, Verdict};
 use std::collections::{HashSet, VecDeque};
 
 use crate::app::Message;
@@ -249,13 +249,11 @@ fn expanded_details<'a>(detection: &'a DetectionEvent) -> Element<'a, Message> {
 
     // Heuristics
     if let Some(ref heur) = detection.detection.heuristics {
-        details = details.push(
-            text("Heuristic Analysis")
-                .size(14)
-                .style(|_theme: &iced::Theme| text::Style {
-                    color: Some(iced::Color::from_rgb(0.9, 0.7, 0.5)),
-                }),
-        );
+        details = details.push(text("Heuristic Analysis").size(14).style(
+            |_theme: &iced::Theme| text::Style {
+                color: Some(iced::Color::from_rgb(0.9, 0.7, 0.5)),
+            },
+        ));
         details = details.push(detail_row(
             "Packed",
             if heur.is_packed { "Yes" } else { "No" }.to_string(),
@@ -282,13 +280,14 @@ fn expanded_details<'a>(detection: &'a DetectionEvent) -> Element<'a, Message> {
 
     // ML Prediction
     if let Some(ref ml) = detection.detection.ml_prediction {
-        details = details.push(
-            text("ML Prediction")
-                .size(14)
-                .style(|_theme: &Theme| text::Style {
-                    color: Some(iced::Color::from_rgb(0.7, 0.5, 0.9)),
-                }),
-        );
+        details =
+            details.push(
+                text("ML Prediction")
+                    .size(14)
+                    .style(|_theme: &Theme| text::Style {
+                        color: Some(iced::Color::from_rgb(0.7, 0.5, 0.9)),
+                    }),
+            );
         details = details.push(detail_row(
             "Malicious Probability",
             format!("{:.2}%", ml.malicious_probability * 100.0),
