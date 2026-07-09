@@ -1,4 +1,6 @@
-use galatea_shared::ipc::{IpcMessage, PIPE_BUFFER_SIZE, PIPE_NAME};
+use galatea_shared::ipc::{
+    COMMAND_PIPE_NAME, IpcMessage, IpcRequest, IpcResponse, PIPE_BUFFER_SIZE, PIPE_NAME,
+};
 use mimic_core::{mimic_error, mimic_log};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
@@ -10,12 +12,17 @@ use windows::Win32::Security::Authorization::{
     ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
 };
 use windows::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
-use windows::Win32::Storage::FileSystem::{PIPE_ACCESS_OUTBOUND, WriteFile};
+use windows::Win32::Storage::FileSystem::{
+    PIPE_ACCESS_DUPLEX, PIPE_ACCESS_OUTBOUND, ReadFile, WriteFile,
+};
 use windows::Win32::System::Pipes::{
     ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, PIPE_READMODE_MESSAGE,
     PIPE_TYPE_MESSAGE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
 };
 use windows::core::{PWSTR, w};
+
+use crate::FILE_CONTEXT_CACHE;
+use crate::cache::file_context_cache::FileContextCache;
 
 #[allow(dead_code)]
 pub struct IpcServer {
@@ -30,8 +37,10 @@ impl IpcServer {
         thread::spawn(move || {
             run_ipc_server(rx);
         });
+        thread::spawn(run_command_server);
 
         mimic_log!("IPC server listening on {}", PIPE_NAME);
+        mimic_log!("IPC command server listening on {}", COMMAND_PIPE_NAME);
         Some(tx)
     }
 }
@@ -165,6 +174,143 @@ fn create_pipe_instance() -> Option<HANDLE> {
     }
 
     result
+}
+
+fn run_command_server() {
+    loop {
+        match create_command_pipe_instance() {
+            Some(pipe_handle) => unsafe {
+                match ConnectNamedPipe(pipe_handle, None) {
+                    Ok(_) => handle_command_client(pipe_handle),
+                    Err(e) => {
+                        let error_code = e.code().0 as u32;
+                        if error_code == ERROR_PIPE_CONNECTED.0 {
+                            handle_command_client(pipe_handle);
+                        } else {
+                            mimic_error!("[IPC] Command ConnectNamedPipe failed: {:?}", e);
+                        }
+                    }
+                }
+
+                let _ = DisconnectNamedPipe(pipe_handle);
+                let _ = CloseHandle(pipe_handle);
+            },
+            None => thread::sleep(std::time::Duration::from_secs(1)),
+        }
+    }
+}
+
+fn create_command_pipe_instance() -> Option<HANDLE> {
+    // SYSTEM + Administrators full access; Interactive Users read/write access.
+    let mut security_descriptor = PSECURITY_DESCRIPTOR::default();
+    let sddl = w!("D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)");
+    unsafe {
+        if ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl,
+            SDDL_REVISION_1 as u32,
+            &mut security_descriptor,
+            None,
+        )
+        .is_err()
+        {
+            mimic_error!("[IPC] Failed to build command pipe security descriptor from SDDL");
+            return None;
+        }
+    }
+
+    let sa = SECURITY_ATTRIBUTES {
+        nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+        lpSecurityDescriptor: security_descriptor.0,
+        bInheritHandle: false.into(),
+    };
+
+    let pipe_name_wide: Vec<u16> = COMMAND_PIPE_NAME
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+
+    let result = unsafe {
+        let handle = CreateNamedPipeW(
+            PWSTR(pipe_name_wide.as_ptr() as *mut _),
+            PIPE_ACCESS_DUPLEX,
+            PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+            PIPE_UNLIMITED_INSTANCES,
+            PIPE_BUFFER_SIZE,
+            PIPE_BUFFER_SIZE,
+            0,
+            Some(&sa as *const _),
+        );
+
+        if handle == INVALID_HANDLE_VALUE {
+            mimic_error!("[IPC] CreateNamedPipeW command pipe failed");
+            None
+        } else {
+            Some(handle)
+        }
+    };
+
+    unsafe {
+        let _ = windows::Win32::Foundation::LocalFree(Some(HLOCAL(security_descriptor.0)));
+    }
+
+    result
+}
+
+fn handle_command_client(pipe_handle: HANDLE) {
+    let mut buffer = vec![0u8; PIPE_BUFFER_SIZE as usize];
+
+    unsafe {
+        let mut bytes_read: u32 = 0;
+        if ReadFile(
+            pipe_handle,
+            Some(&mut buffer[..]),
+            Some(&mut bytes_read),
+            None,
+        )
+        .is_err()
+        {
+            mimic_error!("[IPC] Failed to read command request");
+            return;
+        }
+
+        let response = if bytes_read == 0 {
+            IpcResponse::Error {
+                message: "empty request".to_string(),
+            }
+        } else {
+            match serde_json::from_slice::<IpcRequest>(&buffer[..bytes_read as usize]) {
+                Ok(IpcRequest::GetFileContextSnapshot { limit }) => {
+                    let fs_cache = FILE_CONTEXT_CACHE.get_or_init(FileContextCache::new);
+                    IpcResponse::FileContextSnapshot {
+                        entries: fs_cache.snapshot(limit),
+                    }
+                }
+                Err(e) => IpcResponse::Error {
+                    message: format!("invalid request: {e}"),
+                },
+            }
+        };
+
+        let json = match serde_json::to_string(&response) {
+            Ok(json) => json,
+            Err(e) => {
+                mimic_error!("[IPC] Failed to serialize command response: {e}");
+                return;
+            }
+        };
+
+        let mut bytes_written: u32 = 0;
+        if WriteFile(
+            pipe_handle,
+            Some(json.as_bytes()),
+            Some(&mut bytes_written),
+            None,
+        )
+        .is_err()
+        {
+            mimic_error!("[IPC] Failed to write command response");
+        }
+    }
 }
 
 fn broadcast_message(clients: &mut Vec<HANDLE>, message: &IpcMessage) {

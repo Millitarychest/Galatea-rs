@@ -1,9 +1,13 @@
 use std::sync::{Arc, RwLock};
 use std::time::SystemTime;
 
+use chrono::{DateTime, Utc};
+use galatea_shared::ipc::{
+    FileContextKeySnapshot, FileContextSnapshot, FileScanSummarySnapshot, FileVerdictSnapshot,
+};
 use mimic_core::mimic_error;
 
-use crate::cache::static_analyzer_cache::ScanSummary;
+use crate::cache::static_analyzer_cache::{FileVerdict, ScanSummary};
 
 const FILE_CONTEXT_CACHE_CAPACITY: u64 = 10_000;
 
@@ -185,6 +189,25 @@ impl FileContextCache {
         self.entries.invalidate(key);
     }
 
+    /// Returns a bounded cloned snapshot of cache entries for GUI inspection.
+    pub fn snapshot(&self, limit: usize) -> Vec<FileContextSnapshot> {
+        let mut snapshots = Vec::with_capacity(limit.min(self.entries.entry_count() as usize));
+
+        for entry in self.entries.iter() {
+            if snapshots.len() >= limit {
+                break;
+            }
+
+            let (key, context) = entry;
+            match context.read() {
+                Ok(context) => snapshots.push(file_context_snapshot(&key, &context)),
+                Err(e) => mimic_error!("[FILE_CONTEXT] Failed to snapshot poisoned context: {e}"),
+            }
+        }
+
+        snapshots
+    }
+
     fn update_context(
         &self,
         key: FileContextKey,
@@ -205,6 +228,40 @@ impl FileContextCache {
             }
         }
     }
+}
+
+fn file_context_snapshot(key: &FileContextKey, context: &FileContext) -> FileContextSnapshot {
+    FileContextSnapshot {
+        key: match key {
+            FileContextKey::FileIndex(file_index) => FileContextKeySnapshot::FileIndex(*file_index),
+            FileContextKey::Path(path) => FileContextKeySnapshot::Path(path.clone()),
+        },
+        normalized_file_path: context.normalized_file_path().map(str::to_string),
+        file_index: context.file_index(),
+        last_write_process: context.last_write_process().map(str::to_string),
+        last_write_time: context.last_write_time().map(system_time_to_utc),
+        last_rename_time: context.last_rename_time().map(system_time_to_utc),
+        original_name: context.original_name().map(str::to_string),
+        last_scan_summary: context.last_scan_summary().map(scan_summary_snapshot),
+    }
+}
+
+fn scan_summary_snapshot(scan: &ScanSummary) -> FileScanSummarySnapshot {
+    FileScanSummarySnapshot {
+        verdict: match scan.verdict {
+            FileVerdict::Benign => FileVerdictSnapshot::Benign,
+            FileVerdict::Suspicious => FileVerdictSnapshot::Suspicious,
+            FileVerdict::Malicious => FileVerdictSnapshot::Malicious,
+        },
+        threat_score: scan.threat_score,
+        file_size: scan.file_size,
+        mod_time: system_time_to_utc(scan.mod_time),
+        file_index: scan.file_index,
+    }
+}
+
+fn system_time_to_utc(value: SystemTime) -> DateTime<Utc> {
+    DateTime::<Utc>::from(value)
 }
 
 impl Default for FileContextCache {

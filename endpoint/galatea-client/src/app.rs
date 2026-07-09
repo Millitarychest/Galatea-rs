@@ -1,4 +1,4 @@
-use galatea_shared::ipc::{DetectionEvent, IpcMessage};
+use galatea_shared::ipc::{DetectionEvent, FileContextSnapshot, IpcMessage};
 use iced::futures::stream;
 use iced::widget::{column, container};
 use iced::{Element, Task, Theme};
@@ -10,6 +10,13 @@ use crate::theme::AppTheme;
 use crate::ui;
 
 const MAX_DETECTIONS: usize = 1000;
+const FILE_CONTEXT_SNAPSHOT_LIMIT: usize = 500;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewMode {
+    Detections,
+    FileContexts,
+}
 
 pub struct GalateaGui {
     ipc_client: IpcClient,
@@ -21,6 +28,10 @@ pub struct GalateaGui {
     filter_text: String,
     current_theme: AppTheme,
     paused: bool,
+    view_mode: ViewMode,
+    file_contexts: Vec<FileContextSnapshot>,
+    file_context_status: Option<String>,
+    loading_file_contexts: bool,
 }
 
 #[allow(dead_code)]
@@ -32,6 +43,9 @@ pub enum Message {
     ToggleExpanded(String),
     ThemeChanged,
     TogglePause,
+    ViewModeChanged(ViewMode),
+    RefreshFileContexts,
+    FileContextsLoaded(Result<Vec<FileContextSnapshot>, String>),
     Tick,
 }
 
@@ -47,6 +61,10 @@ impl Default for GalateaGui {
             filter_text: String::new(),
             current_theme: AppTheme::default(),
             paused: false,
+            view_mode: ViewMode::Detections,
+            file_contexts: Vec::new(),
+            file_context_status: None,
+            loading_file_contexts: false,
         }
     }
 }
@@ -95,7 +113,7 @@ impl GalateaGui {
                 } else {
                     self.expanded_events.insert(event_id);
                     // Auto-pause when expanding an event
-                    if !self.paused {
+                    if matches!(self.view_mode, ViewMode::Detections) && !self.paused {
                         self.paused = true;
                     }
                 }
@@ -116,6 +134,29 @@ impl GalateaGui {
                     }
                 }
             }
+            Message::ViewModeChanged(view_mode) => {
+                self.view_mode = view_mode;
+                self.filter_text.clear();
+                if matches!(view_mode, ViewMode::FileContexts) && self.file_contexts.is_empty() {
+                    return self.refresh_file_contexts();
+                }
+            }
+            Message::RefreshFileContexts => {
+                return self.refresh_file_contexts();
+            }
+            Message::FileContextsLoaded(result) => {
+                self.loading_file_contexts = false;
+                match result {
+                    Ok(entries) => {
+                        let count = entries.len();
+                        self.file_contexts = entries;
+                        self.file_context_status = Some(format!("{count} cached files"));
+                    }
+                    Err(e) => {
+                        self.file_context_status = Some(e);
+                    }
+                }
+            }
             Message::Tick => {
                 // Poll IPC client for new messages
                 while let Some(event) = self.ipc_client.try_recv() {
@@ -128,21 +169,35 @@ impl GalateaGui {
     }
 
     pub fn view(&'_ self) -> Element<'_, Message> {
+        let body = match self.view_mode {
+            ViewMode::Detections => ui::detection_list::view(
+                &self.detections,
+                &self.filter_text,
+                self.selected_detection,
+                &self.expanded_events,
+            ),
+            ViewMode::FileContexts => ui::file_context_list::view(
+                &self.file_contexts,
+                &self.filter_text,
+                self.loading_file_contexts,
+                self.file_context_status.as_deref(),
+                &self.expanded_events,
+            ),
+        };
+
         let content = column![
             ui::header::view(
                 self.connected,
                 self.detections.len(),
+                self.file_contexts.len(),
                 &self.filter_text,
                 self.current_theme,
                 self.paused,
-                self.pending_detections.len()
+                self.pending_detections.len(),
+                self.view_mode,
+                self.loading_file_contexts,
             ),
-            ui::detection_list::view(
-                &self.detections,
-                &self.filter_text,
-                self.selected_detection,
-                &self.expanded_events
-            ),
+            body,
         ]
         .spacing(0);
 
@@ -165,5 +220,24 @@ impl GalateaGui {
 
     pub fn theme(&self) -> Theme {
         self.current_theme.to_iced_theme()
+    }
+
+    fn refresh_file_contexts(&mut self) -> Task<Message> {
+        if self.loading_file_contexts {
+            return Task::none();
+        }
+
+        self.loading_file_contexts = true;
+        self.file_context_status = Some("Refreshing file context cache...".to_string());
+
+        Task::perform(
+            async {
+                async_std::task::spawn_blocking(|| {
+                    IpcClient::request_file_context_snapshot(FILE_CONTEXT_SNAPSHOT_LIMIT)
+                })
+                .await
+            },
+            Message::FileContextsLoaded,
+        )
     }
 }

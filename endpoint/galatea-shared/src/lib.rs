@@ -82,7 +82,7 @@ pub mod filter_port {
             }
         }
     }
-    
+
     /// Struct used to send File System Events via IOCTL
     #[repr(C)]
     #[derive(Clone, Copy, Debug)]
@@ -98,7 +98,7 @@ pub mod filter_port {
         /// Targeted File Path
         pub file_path: [u16; 260],
         /// NTFS file index
-        pub file_index: u64
+        pub file_index: u64,
     }
 
     /// Enum used to represent the different actions that might be taken on a File
@@ -131,10 +131,93 @@ pub mod ipc {
 
     /// Named Pipe Identifier used for agent - client IPC
     pub const PIPE_NAME: &str = "\\\\.\\pipe\\galatea_client_events";
+    /// Named Pipe Identifier used for agent - client request/response IPC
+    pub const COMMAND_PIPE_NAME: &str = "\\\\.\\pipe\\galatea_client_commands";
     /// Named Pipe Configuration item "Buffer size" used for agent - client IPC
     pub const PIPE_BUFFER_SIZE: u32 = 65536; // 64KB buffer
     /// Named Pipe Configuration item "timeout" used for agent - client IPC
     pub const PIPE_TIMEOUT_MS: u32 = 5000;
+
+    /// Stable cache key rendered for client display.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub enum FileContextKeySnapshot {
+        /// NTFS file index key.
+        FileIndex(u64),
+        /// Canonicalized path fallback key.
+        Path(String),
+    }
+
+    /// File reputation verdict stored with the latest scan summary.
+    #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+    pub enum FileVerdictSnapshot {
+        /// No suspicious static analysis signal.
+        Benign,
+        /// Static analysis found suspicious traits.
+        Suspicious,
+        /// Static analysis crossed the blocking threshold.
+        Malicious,
+    }
+
+    /// Serializable static scan summary for a file context entry.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct FileScanSummarySnapshot {
+        /// Simplified file reputation verdict.
+        pub verdict: FileVerdictSnapshot,
+        /// Static analysis threat score.
+        pub threat_score: i32,
+        /// File size observed at scan time.
+        pub file_size: u64,
+        /// File modification time observed at scan time.
+        pub mod_time: DateTime<Utc>,
+        /// NTFS file index observed at scan time.
+        pub file_index: Option<u64>,
+    }
+
+    /// Serializable snapshot of one file context cache entry.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct FileContextSnapshot {
+        /// Cache key used for lookup.
+        pub key: FileContextKeySnapshot,
+        /// Current normalized file path when known.
+        pub normalized_file_path: Option<String>,
+        /// NTFS file index when known.
+        pub file_index: Option<u64>,
+        /// Process image responsible for the latest write when known.
+        pub last_write_process: Option<String>,
+        /// Timestamp of the latest observed write.
+        pub last_write_time: Option<DateTime<Utc>>,
+        /// Timestamp of the latest observed rename.
+        pub last_rename_time: Option<DateTime<Utc>>,
+        /// Original file name before rename when known.
+        pub original_name: Option<String>,
+        /// Latest static scan summary when known.
+        pub last_scan_summary: Option<FileScanSummarySnapshot>,
+    }
+
+    /// Request messages sent by the GUI to the agent command pipe.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub enum IpcRequest {
+        /// Request a bounded file context cache snapshot.
+        GetFileContextSnapshot {
+            /// Maximum number of entries to return.
+            limit: usize,
+        },
+    }
+
+    /// Response messages sent by the agent command pipe to the GUI.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub enum IpcResponse {
+        /// Bounded file context cache snapshot.
+        FileContextSnapshot {
+            /// Snapshot entries.
+            entries: alloc::vec::Vec<FileContextSnapshot>,
+        },
+        /// Command failed.
+        Error {
+            /// Human-readable error message.
+            message: String,
+        },
+    }
 
     /// Struct used in agent IPC broadcast, containing all relavent detection information
     #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,10 +1,14 @@
-use galatea_shared::ipc::{IpcMessage, PIPE_NAME};
+use galatea_shared::ipc::{
+    COMMAND_PIPE_NAME, FileContextSnapshot, IpcMessage, IpcRequest, IpcResponse, PIPE_BUFFER_SIZE,
+    PIPE_NAME,
+};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::Duration;
-use windows::Win32::Foundation::{CloseHandle, ERROR_PIPE_BUSY, HANDLE};
+use windows::Win32::Foundation::{CloseHandle, ERROR_MORE_DATA, ERROR_PIPE_BUSY, HANDLE};
 use windows::Win32::Storage::FileSystem::{
-    CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, OPEN_EXISTING, ReadFile,
+    CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE, OPEN_EXISTING,
+    ReadFile, WriteFile,
 };
 use windows::Win32::System::Pipes::WaitNamedPipeW;
 use windows::core::PWSTR;
@@ -33,6 +37,18 @@ impl IpcClient {
 
     pub fn try_recv(&self) -> Option<IpcClientMessage> {
         self.receiver.try_recv().ok()
+    }
+
+    pub fn request_file_context_snapshot(limit: usize) -> Result<Vec<FileContextSnapshot>, String> {
+        let pipe_handle = connect_to_command_pipe()
+            .ok_or_else(|| "failed to connect to agent command pipe".to_string())?;
+
+        let result = request_file_context_snapshot_inner(pipe_handle, limit);
+        unsafe {
+            let _ = CloseHandle(pipe_handle);
+        }
+
+        result
     }
 }
 
@@ -84,6 +100,95 @@ fn connect_to_pipe() -> Option<HANDLE> {
                     }
                 }
                 None
+            }
+        }
+    }
+}
+
+fn connect_to_command_pipe() -> Option<HANDLE> {
+    let pipe_name_wide: Vec<u16> = COMMAND_PIPE_NAME
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+
+    unsafe {
+        match CreateFileW(
+            PWSTR(pipe_name_wide.as_ptr() as *mut _),
+            (FILE_GENERIC_READ | FILE_GENERIC_WRITE).0,
+            windows::Win32::Storage::FileSystem::FILE_SHARE_NONE,
+            None,
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            None,
+        ) {
+            Ok(handle) => Some(handle),
+            Err(e) => {
+                let error_code = e.code().0 as u32;
+                if error_code == ERROR_PIPE_BUSY.0
+                    && WaitNamedPipeW(PWSTR(pipe_name_wide.as_ptr() as *mut _), 5000).as_bool()
+                {
+                    return connect_to_command_pipe();
+                }
+                None
+            }
+        }
+    }
+}
+
+fn request_file_context_snapshot_inner(
+    pipe_handle: HANDLE,
+    limit: usize,
+) -> Result<Vec<FileContextSnapshot>, String> {
+    let request = IpcRequest::GetFileContextSnapshot { limit };
+    let request_json =
+        serde_json::to_string(&request).map_err(|e| format!("failed to serialize request: {e}"))?;
+
+    unsafe {
+        let mut bytes_written: u32 = 0;
+        WriteFile(
+            pipe_handle,
+            Some(request_json.as_bytes()),
+            Some(&mut bytes_written),
+            None,
+        )
+        .map_err(|e| format!("failed to write request: {e:?}"))?;
+
+        let response_bytes = read_command_response(pipe_handle)?;
+        let response = serde_json::from_slice::<IpcResponse>(&response_bytes)
+            .map_err(|e| format!("failed to parse response: {e}"))?;
+
+        match response {
+            IpcResponse::FileContextSnapshot { entries } => Ok(entries),
+            IpcResponse::Error { message } => Err(message),
+        }
+    }
+}
+
+fn read_command_response(pipe_handle: HANDLE) -> Result<Vec<u8>, String> {
+    let mut data = Vec::with_capacity(PIPE_BUFFER_SIZE as usize);
+    let mut buffer = vec![0u8; PIPE_BUFFER_SIZE as usize];
+
+    loop {
+        unsafe {
+            let mut bytes_read: u32 = 0;
+            match ReadFile(
+                pipe_handle,
+                Some(&mut buffer[..]),
+                Some(&mut bytes_read),
+                None,
+            ) {
+                Ok(_) => {
+                    data.extend_from_slice(&buffer[..bytes_read as usize]);
+                    return Ok(data);
+                }
+                Err(e) => {
+                    let error_code = e.code().0 as u32;
+                    if error_code == ERROR_MORE_DATA.0 {
+                        data.extend_from_slice(&buffer[..bytes_read as usize]);
+                    } else {
+                        return Err(format!("failed to read response: {e:?}"));
+                    }
+                }
             }
         }
     }
