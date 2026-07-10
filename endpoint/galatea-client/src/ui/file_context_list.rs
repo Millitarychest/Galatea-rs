@@ -328,15 +328,15 @@ fn format_flags(flags: &[FileFlagSnapshot]) -> String {
 
 fn flag_label(flag: FileFlagSnapshot) -> &'static str {
     match flag {
-        FileFlagSnapshot::FileWriteSuccess => "WriteSuccess",
-        FileFlagSnapshot::WhiteListed => "Allowlisted",
-        FileFlagSnapshot::BlackListed => "Blocklisted",
-        FileFlagSnapshot::StaticScanMalicious => "StaticMalicious",
-        FileFlagSnapshot::StaticScanSuspicious => "StaticSuspicious",
-        FileFlagSnapshot::StaticScanBeneign => "StaticBenign",
-        FileFlagSnapshot::InAutoStartLocation => "AutoStartLocation",
-        FileFlagSnapshot::InTempLocation => "TempLocation",
-        FileFlagSnapshot::RenamedToExecutable => "RenamedExecutable",
+        FileFlagSnapshot::FileWriteSuccess => "FileWriteSuccess",
+        FileFlagSnapshot::WhiteListed => "WhiteListed",
+        FileFlagSnapshot::BlackListed => "BlackListed",
+        FileFlagSnapshot::StaticScanMalicious => "StaticScanMalicious",
+        FileFlagSnapshot::StaticScanSuspicious => "StaticScanSuspicious",
+        FileFlagSnapshot::StaticScanBeneign => "StaticScanBeneign",
+        FileFlagSnapshot::InAutoStartLocation => "InAutoStartLocation",
+        FileFlagSnapshot::InTempLocation => "InTempLocation",
+        FileFlagSnapshot::RenamedToExecutable => "RenamedToExecutable",
     }
 }
 
