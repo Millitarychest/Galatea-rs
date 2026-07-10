@@ -100,7 +100,7 @@ fn accept_clients_loop(client_sender: Sender<super::SendHandle>) {
                             }
                         }
                         Err(e) => {
-                            let error_code = e.code().0 as u32;
+                            let error_code = win32_error_code(&e);
                             if error_code == ERROR_PIPE_CONNECTED.0 {
                                 // Client already connected
                                 if client_sender.send(pipe_handle.into()).is_err() {
@@ -176,6 +176,15 @@ fn create_pipe_instance() -> Option<HANDLE> {
     result
 }
 
+fn win32_error_code(error: &windows::core::Error) -> u32 {
+    let raw = error.code().0 as u32;
+    if raw & 0xffff_0000 == 0x8007_0000 {
+        raw & 0x0000_ffff
+    } else {
+        raw
+    }
+}
+
 fn run_command_server() {
     loop {
         match create_command_pipe_instance() {
@@ -183,7 +192,7 @@ fn run_command_server() {
                 match ConnectNamedPipe(pipe_handle, None) {
                     Ok(_) => handle_command_client(pipe_handle),
                     Err(e) => {
-                        let error_code = e.code().0 as u32;
+                        let error_code = win32_error_code(&e);
                         if error_code == ERROR_PIPE_CONNECTED.0 {
                             handle_command_client(pipe_handle);
                         } else {
@@ -299,18 +308,29 @@ fn handle_command_client(pipe_handle: HANDLE) {
             }
         };
 
-        let mut bytes_written: u32 = 0;
-        if WriteFile(
-            pipe_handle,
-            Some(json.as_bytes()),
-            Some(&mut bytes_written),
-            None,
-        )
-        .is_err()
-        {
+        if !write_command_response(pipe_handle, json.as_bytes()) {
             mimic_error!("[IPC] Failed to write command response");
         }
     }
+}
+
+fn write_command_response(pipe_handle: HANDLE, data: &[u8]) -> bool {
+    let response_len = (data.len() as u64).to_le_bytes();
+    write_pipe_bytes(pipe_handle, &response_len) && write_pipe_bytes(pipe_handle, data)
+}
+
+fn write_pipe_bytes(pipe_handle: HANDLE, data: &[u8]) -> bool {
+    for chunk in data.chunks(PIPE_BUFFER_SIZE as usize) {
+        let mut bytes_written: u32 = 0;
+        let write_result =
+            unsafe { WriteFile(pipe_handle, Some(chunk), Some(&mut bytes_written), None) };
+
+        if write_result.is_err() || bytes_written as usize != chunk.len() {
+            return false;
+        }
+    }
+
+    true
 }
 
 fn broadcast_message(clients: &mut Vec<HANDLE>, message: &IpcMessage) {
@@ -334,7 +354,7 @@ fn broadcast_message(clients: &mut Vec<HANDLE>, message: &IpcMessage) {
                     // Success
                 }
                 Err(e) => {
-                    let error_code = e.code().0 as u32;
+                    let error_code = win32_error_code(&e);
                     if error_code == ERROR_NO_DATA.0 || error_code == ERROR_BROKEN_PIPE.0 {
                         mimic_log!("[IPC] Client disconnected");
                         disconnected_clients.push(idx);

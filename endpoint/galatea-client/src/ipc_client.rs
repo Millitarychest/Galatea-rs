@@ -1,11 +1,10 @@
 use galatea_shared::ipc::{
-    COMMAND_PIPE_NAME, FileContextSnapshot, IpcMessage, IpcRequest, IpcResponse, PIPE_BUFFER_SIZE,
-    PIPE_NAME,
+    COMMAND_PIPE_NAME, FileContextSnapshot, IpcMessage, IpcRequest, IpcResponse, PIPE_NAME,
 };
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::Duration;
-use windows::Win32::Foundation::{CloseHandle, ERROR_MORE_DATA, ERROR_PIPE_BUSY, HANDLE};
+use windows::Win32::Foundation::{CloseHandle, ERROR_PIPE_BUSY, HANDLE};
 use windows::Win32::Storage::FileSystem::{
     CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE, OPEN_EXISTING,
     ReadFile, WriteFile,
@@ -91,7 +90,7 @@ fn connect_to_pipe() -> Option<HANDLE> {
         ) {
             Ok(handle) => Some(handle),
             Err(e) => {
-                let error_code = e.code().0 as u32;
+                let error_code = win32_error_code(&e);
                 if error_code == ERROR_PIPE_BUSY.0 {
                     // Pipe is busy, wait for it
                     if WaitNamedPipeW(PWSTR(pipe_name_wide.as_ptr() as *mut _), 5000).as_bool() {
@@ -102,6 +101,15 @@ fn connect_to_pipe() -> Option<HANDLE> {
                 None
             }
         }
+    }
+}
+
+fn win32_error_code(error: &windows::core::Error) -> u32 {
+    let raw = error.code().0 as u32;
+    if raw & 0xffff_0000 == 0x8007_0000 {
+        raw & 0x0000_ffff
+    } else {
+        raw
     }
 }
 
@@ -123,7 +131,7 @@ fn connect_to_command_pipe() -> Option<HANDLE> {
         ) {
             Ok(handle) => Some(handle),
             Err(e) => {
-                let error_code = e.code().0 as u32;
+                let error_code = win32_error_code(&e);
                 if error_code == ERROR_PIPE_BUSY.0
                     && WaitNamedPipeW(PWSTR(pipe_name_wide.as_ptr() as *mut _), 5000).as_bool()
                 {
@@ -165,33 +173,39 @@ fn request_file_context_snapshot_inner(
 }
 
 fn read_command_response(pipe_handle: HANDLE) -> Result<Vec<u8>, String> {
-    let mut data = Vec::with_capacity(PIPE_BUFFER_SIZE as usize);
-    let mut buffer = vec![0u8; PIPE_BUFFER_SIZE as usize];
+    let mut len_bytes = [0u8; size_of::<u64>()];
+    read_command_bytes(pipe_handle, &mut len_bytes)?;
 
-    loop {
+    let response_len = u64::from_le_bytes(len_bytes) as usize;
+    let mut response = vec![0u8; response_len];
+    read_command_bytes(pipe_handle, &mut response)?;
+
+    Ok(response)
+}
+
+fn read_command_bytes(pipe_handle: HANDLE, output: &mut [u8]) -> Result<(), String> {
+    let mut offset = 0;
+
+    while offset < output.len() {
         unsafe {
             let mut bytes_read: u32 = 0;
-            match ReadFile(
+            ReadFile(
                 pipe_handle,
-                Some(&mut buffer[..]),
+                Some(&mut output[offset..]),
                 Some(&mut bytes_read),
                 None,
-            ) {
-                Ok(_) => {
-                    data.extend_from_slice(&buffer[..bytes_read as usize]);
-                    return Ok(data);
-                }
-                Err(e) => {
-                    let error_code = e.code().0 as u32;
-                    if error_code == ERROR_MORE_DATA.0 {
-                        data.extend_from_slice(&buffer[..bytes_read as usize]);
-                    } else {
-                        return Err(format!("failed to read response: {e:?}"));
-                    }
-                }
+            )
+            .map_err(|e| format!("failed to read response: {e:?}"))?;
+
+            if bytes_read == 0 {
+                return Err("command response ended early".to_string());
             }
+
+            offset += bytes_read as usize;
         }
     }
+
+    Ok(())
 }
 
 fn read_messages(pipe_handle: HANDLE, sender: &Sender<IpcClientMessage>) {
