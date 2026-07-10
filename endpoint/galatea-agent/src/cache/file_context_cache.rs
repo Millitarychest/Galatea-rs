@@ -3,11 +3,13 @@ use std::time::SystemTime;
 
 use chrono::{DateTime, Utc};
 use galatea_shared::ipc::{
-    FileContextKeySnapshot, FileContextSnapshot, FileScanSummarySnapshot, FileVerdictSnapshot,
+    FileContextKeySnapshot, FileContextSnapshot, FileFlagSnapshot, FileScanSummarySnapshot,
+    FileVerdictSnapshot,
 };
 use mimic_core::mimic_error;
 
 use crate::cache::static_analyzer_cache::{FileVerdict, ScanSummary};
+use crate::engine::signatures::file_signatures;
 
 const FILE_CONTEXT_CACHE_CAPACITY: u64 = 10_000;
 
@@ -48,6 +50,8 @@ pub struct FileTelemetryUpdate {
     pub last_rename_time: Option<SystemTime>,
     /// Original file name before a rename when observed.
     pub original_name: Option<String>,
+    /// Matching Flags on the File
+    pub matching_flags: Option<Vec<file_signatures::FileFlags>>,
 }
 
 /// Contextual information about a file used during correlation.
@@ -63,7 +67,7 @@ pub struct FileContext {
     last_rename_time: Option<SystemTime>,
     original_name: Option<String>,
     last_scan_summary: Option<ScanSummary>,
-    // matching_signatures: todo!()
+    matching_flags: Vec<file_signatures::FileFlags>,
 }
 
 impl FileContext {
@@ -102,6 +106,10 @@ impl FileContext {
         self.last_scan_summary.as_ref()
     }
 
+    pub fn apply_flags(&mut self, mut flags: Vec<file_signatures::FileFlags>) {
+        self.matching_flags.append(&mut flags);
+    }
+
     fn apply_telemetry(&mut self, update: FileTelemetryUpdate) {
         if let Some(path) = update.normalized_file_path {
             self.normalized_file_path = Some(fsc_canonicalize_path(&path));
@@ -125,6 +133,10 @@ impl FileContext {
 
         if let Some(original_name) = update.original_name {
             self.original_name = Some(original_name);
+        }
+
+        if let Some(mut flags) = update.matching_flags {
+            self.matching_flags.append(&mut flags); // I think this is not great?
         }
     }
 }
@@ -189,6 +201,14 @@ impl FileContextCache {
         self.entries.invalidate(key);
     }
 
+    pub fn flag_file(
+        &self,
+        key: FileContextKey,
+        flags: Vec<file_signatures::FileFlags>,
+    ) -> Option<FileContext> {
+        self.update_context(key, |context| context.apply_flags(flags))
+    }
+
     /// Returns a bounded cloned snapshot of cache entries for GUI inspection.
     pub fn snapshot(&self, limit: usize) -> Vec<FileContextSnapshot> {
         let mut snapshots = Vec::with_capacity(limit.min(self.entries.entry_count() as usize));
@@ -242,7 +262,47 @@ fn file_context_snapshot(key: &FileContextKey, context: &FileContext) -> FileCon
         last_write_time: context.last_write_time().map(system_time_to_utc),
         last_rename_time: context.last_rename_time().map(system_time_to_utc),
         original_name: context.original_name().map(str::to_string),
+        matching_flags: file_flag_snapshots(&context.matching_flags),
         last_scan_summary: context.last_scan_summary().map(scan_summary_snapshot),
+    }
+}
+
+fn file_flag_snapshots(flags: &[file_signatures::FileFlags]) -> Vec<FileFlagSnapshot> {
+    let mut snapshots = Vec::new();
+
+    for flag in flags {
+        let Some(snapshot) = file_flag_snapshot(*flag) else {
+            continue;
+        };
+
+        if !snapshots.contains(&snapshot) {
+            snapshots.push(snapshot);
+        }
+    }
+
+    snapshots
+}
+
+fn file_flag_snapshot(flag: file_signatures::FileFlags) -> Option<FileFlagSnapshot> {
+    match flag {
+        file_signatures::FileFlags::None => None,
+        file_signatures::FileFlags::FileWriteSuccess => Some(FileFlagSnapshot::FileWriteSuccess),
+        file_signatures::FileFlags::WhiteListed => Some(FileFlagSnapshot::WhiteListed),
+        file_signatures::FileFlags::BlackListed => Some(FileFlagSnapshot::BlackListed),
+        file_signatures::FileFlags::StaticScanMalicious => {
+            Some(FileFlagSnapshot::StaticScanMalicious)
+        }
+        file_signatures::FileFlags::StaticScanSuspicious => {
+            Some(FileFlagSnapshot::StaticScanSuspicious)
+        }
+        file_signatures::FileFlags::StaticScanBeneign => Some(FileFlagSnapshot::StaticScanBeneign),
+        file_signatures::FileFlags::InAutoStartLocation => {
+            Some(FileFlagSnapshot::InAutoStartLocation)
+        }
+        file_signatures::FileFlags::InTempLocation => Some(FileFlagSnapshot::InTempLocation),
+        file_signatures::FileFlags::RenamedToExecutable => {
+            Some(FileFlagSnapshot::RenamedToExecutable)
+        }
     }
 }
 

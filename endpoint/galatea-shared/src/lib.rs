@@ -173,6 +173,29 @@ pub mod ipc {
         pub file_index: Option<u64>,
     }
 
+    /// Serializable file context flag for GUI display.
+    #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+    pub enum FileFlagSnapshot {
+        /// A file write completed successfully.
+        FileWriteSuccess,
+        /// File is explicitly allowlisted.
+        WhiteListed,
+        /// File is explicitly blocklisted.
+        BlackListed,
+        /// Static analysis classified the file as malicious.
+        StaticScanMalicious,
+        /// Static analysis classified the file as suspicious.
+        StaticScanSuspicious,
+        /// Static analysis classified the file as benign.
+        StaticScanBeneign,
+        /// File is in a file-based autostart location.
+        InAutoStartLocation,
+        /// File is in a temporary file location.
+        InTempLocation,
+        /// File was renamed to an executable extension.
+        RenamedToExecutable,
+    }
+
     /// Serializable snapshot of one file context cache entry.
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct FileContextSnapshot {
@@ -190,6 +213,8 @@ pub mod ipc {
         pub last_rename_time: Option<DateTime<Utc>>,
         /// Original file name before rename when known.
         pub original_name: Option<String>,
+        /// Matching file context flags.
+        pub matching_flags: alloc::vec::Vec<FileFlagSnapshot>,
         /// Latest static scan summary when known.
         pub last_scan_summary: Option<FileScanSummarySnapshot>,
     }

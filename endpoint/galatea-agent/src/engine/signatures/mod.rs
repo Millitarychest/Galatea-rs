@@ -1,7 +1,7 @@
 pub mod file_signatures;
 pub mod process_signatures;
 
-// standardize oublic api for signature handling
+// standardize public api for signature handling
 pub trait ThreatSiganture {
     fn get_tid();
     fn get_common_name();

@@ -1,6 +1,7 @@
 use chrono::Local;
 use galatea_shared::ipc::{
-    FileContextKeySnapshot, FileContextSnapshot, FileScanSummarySnapshot, FileVerdictSnapshot,
+    FileContextKeySnapshot, FileContextSnapshot, FileFlagSnapshot, FileScanSummarySnapshot,
+    FileVerdictSnapshot,
 };
 use iced::widget::{Column, button, column, container, row, scrollable, text, text_input};
 use iced::{Element, Length, Padding, Theme};
@@ -60,9 +61,11 @@ fn header_row<'a>(status: Option<&'a str>) -> Element<'a, Message> {
             text("Path").size(11).width(Length::FillPortion(4)),
             text("File index").size(11).width(Length::Fixed(130.0)),
             text("Verdict").size(11).width(Length::Fixed(110.0)),
+            text("Flags").size(11).width(Length::Fixed(180.0)),
             text(status.unwrap_or(""))
                 .size(11)
-                .width(Length::Fixed(160.0)),
+                .width(Length::Fixed(136.0)),
+            text("").size(11).width(Length::Fixed(24.0)),
         ]
         .spacing(10)
         .padding(8),
@@ -108,6 +111,10 @@ fn file_context_row<'a>(
             .style(move |_theme: &Theme| text::Style {
                 color: Some(verdict_color),
             }),
+        text(format_flags(&context.matching_flags))
+            .size(12)
+            .width(Length::Fixed(180.0)),
+        text("").size(12).width(Length::Fixed(136.0)),
         text(if expanded { "▼" } else { "▶" })
             .size(12)
             .width(Length::Fixed(24.0)),
@@ -118,6 +125,7 @@ fn file_context_row<'a>(
     let mut content = column![
         button(row_content)
             .on_press(Message::ToggleExpanded(expanded_key.clone()))
+            .padding(0)
             .width(Length::Fill)
             .style(|theme: &iced::Theme, status| {
                 let base_color = theme.extended_palette().background.base.color;
@@ -163,6 +171,7 @@ fn expanded_details<'a>(context: &'a FileContextSnapshot) -> Element<'a, Message
         detail_row("Cache Key", format_key(&context.key)),
         detail_row("Path", display_path(context)),
         detail_row("File Index", format_optional_u64(context.file_index)),
+        detail_row("Flags", format_flags(&context.matching_flags)),
     ]
     .spacing(6)
     .padding(Padding {
@@ -289,11 +298,13 @@ fn file_context_matches(context: &FileContextSnapshot, filter: &str) -> bool {
         .as_ref()
         .map(|summary| verdict_label(summary.verdict).to_lowercase())
         .unwrap_or_default();
+    let flags = format_flags(&context.matching_flags).to_lowercase();
 
     path.contains(&filter_lower)
         || key.contains(&filter_lower)
         || writer.contains(&filter_lower)
         || verdict.contains(&filter_lower)
+        || flags.contains(&filter_lower)
 }
 
 fn display_path(context: &FileContextSnapshot) -> String {
@@ -301,6 +312,32 @@ fn display_path(context: &FileContextSnapshot) -> String {
         .normalized_file_path
         .clone()
         .unwrap_or_else(|| format_key(&context.key))
+}
+
+fn format_flags(flags: &[FileFlagSnapshot]) -> String {
+    if flags.is_empty() {
+        return "-".to_string();
+    }
+
+    flags
+        .iter()
+        .map(|flag| flag_label(*flag))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn flag_label(flag: FileFlagSnapshot) -> &'static str {
+    match flag {
+        FileFlagSnapshot::FileWriteSuccess => "WriteSuccess",
+        FileFlagSnapshot::WhiteListed => "Allowlisted",
+        FileFlagSnapshot::BlackListed => "Blocklisted",
+        FileFlagSnapshot::StaticScanMalicious => "StaticMalicious",
+        FileFlagSnapshot::StaticScanSuspicious => "StaticSuspicious",
+        FileFlagSnapshot::StaticScanBeneign => "StaticBenign",
+        FileFlagSnapshot::InAutoStartLocation => "AutoStartLocation",
+        FileFlagSnapshot::InTempLocation => "TempLocation",
+        FileFlagSnapshot::RenamedToExecutable => "RenamedExecutable",
+    }
 }
 
 fn format_key(key: &FileContextKeySnapshot) -> String {

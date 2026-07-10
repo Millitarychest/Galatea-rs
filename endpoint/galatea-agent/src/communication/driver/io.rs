@@ -30,6 +30,7 @@ use windows::{
 use crate::FILE_CONTEXT_CACHE;
 use crate::cache::file_context_cache::{self, FileContextCache, FileTelemetryUpdate};
 use crate::communication::ipc::SendHandle;
+use crate::engine::signatures::file_signatures::{self, FileFlags};
 
 pub fn ks_send_verdict(handle: HANDLE, mut verdict: GalateaVerdict) {
     let mut bytes_verdict: u32 = 0;
@@ -192,14 +193,14 @@ fn kf_listen_for_messages(port_handle: HANDLE, running: Arc<AtomicBool>) -> Resu
                         .unwrap_or(260)],
                 );
 
-                mimic_log!(
+                /*mimic_log!(
                     "FS telemetry: pid={}, start_key={:#x}, file_index={:#x}, event={:?}, path='{}'",
                     fs_event.process_id,
                     fs_event.process_start_key,
                     fs_event.file_index,
                     fs_event.event_type,
                     path,
-                );
+                );*/
 
                 // file_index of 0 means the kernel could not obtain it (e.g. FAT
                 // volume); in that case fall back to the path-based cache key.
@@ -213,10 +214,17 @@ fn kf_listen_for_messages(port_handle: HANDLE, running: Arc<AtomicBool>) -> Resu
                     galatea_shared::filter_port::FSEventType::FileOpen => {}
                     galatea_shared::filter_port::FSEventType::FileCreate => {}
                     galatea_shared::filter_port::FSEventType::FileWrite => {
-                        let key =
-                            file_context_cache::FileContextKey::from_identity(&path, file_index);
+                        let normalized_path = file_context_cache::fsc_canonicalize_path(&path);
+                        let key = file_context_cache::FileContextKey::from_identity(
+                            &normalized_path,
+                            file_index,
+                        );
+                        let mut matching_flags = vec![FileFlags::FileWriteSuccess];
+                        matching_flags
+                            .append(&mut file_signatures::get_location_flags(&normalized_path));
+
                         let update = FileTelemetryUpdate {
-                            normalized_file_path: Some(path),
+                            normalized_file_path: Some(normalized_path),
                             file_index,
                             // Process image resolved later once the process
                             // context cache is wired up TODO: change to get image from context
@@ -224,6 +232,7 @@ fn kf_listen_for_messages(port_handle: HANDLE, running: Arc<AtomicBool>) -> Resu
                             last_write_time: Some(SystemTime::now()),
                             last_rename_time: None,
                             original_name: None,
+                            matching_flags: Some(matching_flags),
                         };
                         mimic_log!("[FILE_CONTEXT] write_telemetry key={key:?}");
 

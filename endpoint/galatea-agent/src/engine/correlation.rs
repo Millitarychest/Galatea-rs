@@ -12,7 +12,7 @@ use crate::static_analyzer::AnalysisResult;
 
 /// Correlates an analysis result with process metadata, broadcasts the detection
 /// event to IPC clients, and sends the verdict to the kernel driver.
-pub fn broadcast_process_verdict(
+pub fn broadcast_static_process_verdict(
     result: AnalysisResult,
     driver: SendHandle,
     ipc_sender: Option<&Sender<IpcMessage>>,

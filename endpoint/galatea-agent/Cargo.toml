@@ -42,3 +42,4 @@ windows = { workspace = true, features = [
     "Win32_Security_Cryptography_Catalog",
     "Win32_Security_Cryptography_Sip",
 ] }
+regex.workspace = true

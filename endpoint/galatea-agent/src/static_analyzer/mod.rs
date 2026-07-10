@@ -21,7 +21,7 @@ pub use ml::MlEngine;
 use crate::cache::static_analyzer_cache::{
     CompletedScan, ScanOutcome, StaticResultCache, WaitResult,
 };
-use crate::engine::correlation::broadcast_process_verdict;
+use crate::engine::correlation::broadcast_static_process_verdict;
 use crate::probes::file_identity::get_file_index;
 use crate::{
     CODE_SIGN_FORGIVENESS, CODE_SIGN_REVOKED, CODE_SIGN_UNTRUSTED, HOOK_FILE_NAME,
@@ -98,7 +98,7 @@ pub fn analyze_event(
                 mimic_error!("[SCAN] Failed to stat file, blocking (fail-closed): {image_path}");
                 let mut ctx = AnalysisResult::new(event);
                 ctx.verdict_allow = false;
-                broadcast_process_verdict(ctx, driver, ipc_sender.as_ref());
+                broadcast_static_process_verdict(ctx, driver, ipc_sender.as_ref());
                 return;
             }
         };
@@ -113,7 +113,7 @@ pub fn analyze_event(
                     let result =
                         build_result_from_details(event, details, allow, file_size, last_write);
                     mimic_log!("[CACHE] Reusing cached result for {image_path}");
-                    broadcast_process_verdict(result, driver, ipc_sender.as_ref());
+                    broadcast_static_process_verdict(result, driver, ipc_sender.as_ref());
                     return;
                 }
                 ScanOutcome::Wait(barrier) => {
@@ -128,7 +128,7 @@ pub fn analyze_event(
                                 scan.file_size,
                                 scan.mod_time,
                             );
-                            broadcast_process_verdict(result, driver, ipc_sender.as_ref());
+                            broadcast_static_process_verdict(result, driver, ipc_sender.as_ref());
                             return;
                         }
                         // Timed out or failed — re-acquire a fresh scan slot
@@ -143,7 +143,11 @@ pub fn analyze_event(
                                     let result = build_result_from_details(
                                         event, details, allow, file_size, last_write,
                                     );
-                                    broadcast_process_verdict(result, driver, ipc_sender.as_ref());
+                                    broadcast_static_process_verdict(
+                                        result,
+                                        driver,
+                                        ipc_sender.as_ref(),
+                                    );
                                     return;
                                 }
                                 ScanOutcome::Acquired(guard) => {
@@ -162,7 +166,7 @@ pub fn analyze_event(
                                                 scan.file_size,
                                                 scan.mod_time,
                                             );
-                                            broadcast_process_verdict(
+                                            broadcast_static_process_verdict(
                                                 result,
                                                 driver,
                                                 ipc_sender.as_ref(),
@@ -175,7 +179,7 @@ pub fn analyze_event(
                                             );
                                             let mut ctx = AnalysisResult::new(event);
                                             ctx.verdict_allow = false;
-                                            broadcast_process_verdict(
+                                            broadcast_static_process_verdict(
                                                 ctx,
                                                 driver,
                                                 ipc_sender.as_ref(),
@@ -197,7 +201,7 @@ pub fn analyze_event(
             mimic_error!("[SCAN] Zero-size file, blocking (fail-closed): {image_path}");
             let mut ctx = AnalysisResult::new(event);
             ctx.verdict_allow = false;
-            broadcast_process_verdict(ctx, driver, ipc_sender.as_ref());
+            broadcast_static_process_verdict(ctx, driver, ipc_sender.as_ref());
             return;
         }
 
@@ -220,7 +224,7 @@ pub fn analyze_event(
             mimic_error!("[SCAN] Failed to read file, blocking (fail-closed): {image_path}");
             ctx.verdict_allow = false;
             drop(scan_guard);
-            broadcast_process_verdict(ctx, driver, ipc_sender.as_ref());
+            broadcast_static_process_verdict(ctx, driver, ipc_sender.as_ref());
             return;
         }
 
@@ -275,7 +279,7 @@ pub fn analyze_event(
             }
         }
 
-        broadcast_process_verdict(ctx, driver, ipc_sender.as_ref());
+        broadcast_static_process_verdict(ctx, driver, ipc_sender.as_ref());
     } else {
         mimic_log!(
             "[FAST] PID: {:<6} | Image: {}",
