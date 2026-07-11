@@ -214,6 +214,9 @@ fn kf_listen_for_messages(port_handle: HANDLE, running: Arc<AtomicBool>) -> Resu
                     galatea_shared::filter_port::FSEventType::FileOpen => {}
                     galatea_shared::filter_port::FSEventType::FileCreate => {}
                     galatea_shared::filter_port::FSEventType::FileWrite => {
+                        // =========================================
+                        // WRITE
+                        // =========================================
                         let normalized_path = file_context_cache::fsc_canonicalize_path(&path);
                         let key = file_context_cache::FileContextKey::from_identity(
                             &normalized_path,
@@ -239,7 +242,43 @@ fn kf_listen_for_messages(port_handle: HANDLE, running: Arc<AtomicBool>) -> Resu
                         let fs_cache = FILE_CONTEXT_CACHE.get_or_init(FileContextCache::new);
                         fs_cache.write_telemetry(key, update);
                     }
-                    galatea_shared::filter_port::FSEventType::FileModify => {}
+                    galatea_shared::filter_port::FSEventType::FileModify(fsops) => match fsops {
+                        // =========================================
+                        // RENAME
+                        // =========================================
+                        galatea_shared::filter_port::FSModOperation::Rename(rename_meta) => {
+                            let new_path = String::from_utf16_lossy(
+                                &rename_meta.new_file_path[..rename_meta
+                                    .new_file_path
+                                    .iter()
+                                    .position(|&c| c == 0)
+                                    .unwrap_or(260)],
+                            );
+                            let normalized_path = file_context_cache::fsc_canonicalize_path(&path);
+                            let normalized_new_path =
+                                file_context_cache::fsc_canonicalize_path(&new_path);
+                            let key = file_context_cache::FileContextKey::from_identity(
+                                &normalized_path,
+                                file_index,
+                            );
+
+                            let matching_flags = file_signatures::get_rename_flags(&normalized_path, &normalized_new_path);
+
+                            let update = FileTelemetryUpdate {
+                                normalized_file_path: Some(normalized_new_path),
+                                file_index,
+                                last_write_process: None,
+                                last_write_time: None,
+                                last_rename_time: Some(SystemTime::now()),
+                                original_name: Some(normalized_path),
+                                matching_flags,
+                            };
+                            //mimic_log!("[FILE_CONTEXT] rename_telemetry key={key:?}");
+
+                            let fs_cache = FILE_CONTEXT_CACHE.get_or_init(FileContextCache::new);
+                            fs_cache.write_telemetry(key, update);
+                        }
+                    },
                     galatea_shared::filter_port::FSEventType::FileDelete => {}
                 }
             }

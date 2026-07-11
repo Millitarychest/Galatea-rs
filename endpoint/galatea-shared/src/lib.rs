@@ -43,7 +43,7 @@ pub struct GalateaVerdict {
 /// Module containing communication-port structures used by the filesystem filter.
 pub mod filter_port {
     /// Maximum payload bytes carried by one filter communication-port message.
-    pub const FILTER_PORT_PAYLOAD_SIZE: usize = 1024;
+    pub const FILTER_PORT_PAYLOAD_SIZE: usize = 2048;
 
     /// Message kind sent over the filter communication port.
     #[repr(u32)]
@@ -111,10 +111,28 @@ pub mod filter_port {
         FileCreate,
         /// A file was written to
         FileWrite,
-        /// A file was renamed or its Metadata was changed
-        FileModify,
+        /// A file was renamed or its metadata was changed
+        FileModify(FSModOperation),
         /// A file was marked for deletion
         FileDelete,
+    }
+
+    /// Metadata-changing filesystem operations.
+    #[repr(C)]
+    #[derive(Clone, Copy, Debug)]
+    pub enum FSModOperation {
+        /// A file rename was requested.
+        Rename(RenameMeta),
+    }
+
+    /// Metadata captured from a file rename request.
+    #[repr(C)]
+    #[derive(Clone, Copy, Debug)]
+    pub struct RenameMeta {
+        /// Rename flags supplied by the caller.
+        pub flags: u32,
+        /// Requested new file path or name.
+        pub new_file_path: [u16; 260],
     }
 }
 

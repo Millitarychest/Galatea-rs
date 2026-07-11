@@ -63,6 +63,15 @@ pub const FLT_PORT_CONNECT: AccessMask = 0x0000_0001;
 /// Full access for communication ports built from `FLT_PORT_CONNECT`.
 pub const FLT_PORT_ALL_ACCESS: AccessMask = 0x001f_0000 | FLT_PORT_CONNECT;
 
+/// `FILE_INFORMATION_CLASS` value for a standard rename request.
+pub const FILE_RENAME_INFORMATION_CLASS: i32 = 10;
+
+/// `FILE_INFORMATION_CLASS` value for an extended rename request.
+pub const FILE_RENAME_INFORMATION_EX_CLASS: i32 = 65;
+
+/// Allows a rename to replace an existing destination.
+pub const FILE_RENAME_REPLACE_IF_EXISTS: u32 = 0x0000_0001;
+
 // ---- Callback signatures ----
 
 /// Pre-operation callback function pointer.
@@ -199,10 +208,108 @@ pub struct FLT_CALLBACK_DATA {
     /// Pointer to the calling thread.
     pub _thread: *mut c_void,
     /// Pointer to the I/O parameter block.
-    pub _iopb: *mut c_void,
+    pub iopb: *mut FLT_IO_PARAMETER_BLOCK,
     /// I/O completion status — the field we actually read in post-ops.
     pub io_status: IO_STATUS_BLOCK,
     // remaining fields omitted — we don't access them
+}
+
+/// I/O parameter block supplied with callback data.
+///
+/// Only the fields needed to access `IRP_MJ_SET_INFORMATION` parameters are
+/// represented here.
+#[repr(C)]
+pub struct FLT_IO_PARAMETER_BLOCK {
+    /// Original IRP flags.
+    pub _irp_flags: u32,
+    /// IRP major function.
+    pub _major_function: u8,
+    /// IRP minor function.
+    pub _minor_function: u8,
+    /// Filter Manager operation flags.
+    pub _operation_flags: u8,
+    /// Reserved alignment byte.
+    pub _reserved: u8,
+    /// Target file object.
+    pub _target_file_object: *mut FILE_OBJECT,
+    /// Target filter instance.
+    pub _target_instance: *mut c_void,
+    /// Operation-specific parameters.
+    pub parameters: FLT_PARAMETERS,
+}
+
+/// Operation-specific Filter Manager parameters.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub union FLT_PARAMETERS {
+    /// Parameters for `IRP_MJ_SET_INFORMATION`.
+    pub set_file_information: FLT_SET_FILE_INFORMATION,
+}
+
+/// Parameters supplied for `IRP_MJ_SET_INFORMATION`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct FLT_SET_FILE_INFORMATION {
+    /// Size of the information buffer in bytes.
+    pub length: u32,
+    /// Requested file information class.
+    pub file_information_class: i32,
+    /// Parent target used by rename and hard-link operations.
+    pub _parent_of_target: *mut FILE_OBJECT,
+    /// Class-specific flags.
+    pub argument: FLT_SET_FILE_INFORMATION_ARGUMENT,
+    /// Class-specific information buffer.
+    pub info_buffer: *mut c_void,
+}
+
+/// Class-specific flags for `IRP_MJ_SET_INFORMATION`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub union FLT_SET_FILE_INFORMATION_ARGUMENT {
+    /// Rename and end-of-file boolean flags.
+    pub rename_or_eof: FLT_SET_FILE_INFORMATION_FLAGS,
+    /// Cluster count used by internal operations.
+    pub _cluster_count: u32,
+    /// Delete handle used by internal operations.
+    pub _delete_handle: HANDLE,
+}
+
+/// Boolean flags used by rename and end-of-file operations.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct FLT_SET_FILE_INFORMATION_FLAGS {
+    /// Whether an existing rename target may be replaced.
+    pub replace_if_exists: u8,
+    /// Whether an end-of-file operation only advances valid data length.
+    pub _advance_only: u8,
+}
+
+/// Input buffer supplied with `FileRenameInformation` requests.
+///
+/// `file_name` is the first element of a variable-length UTF-16 string whose
+/// byte length is stored in [`file_name_length`](Self::file_name_length).
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct FILE_RENAME_INFORMATION {
+    /// `ReplaceIfExists` for normal rename requests, or flags for extended
+    /// rename requests.
+    pub flags: FILE_RENAME_INFORMATION_FLAGS,
+    /// Optional root directory for a relative destination name.
+    pub _root_directory: HANDLE,
+    /// Length of the requested destination name in bytes.
+    pub file_name_length: u32,
+    /// First UTF-16 code unit of the variable-length destination name.
+    pub file_name: [u16; 1],
+}
+
+/// First field of [`FILE_RENAME_INFORMATION`].
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub union FILE_RENAME_INFORMATION_FLAGS {
+    /// `ReplaceIfExists` for `FileRenameInformation`.
+    pub _replace_if_exists: u8,
+    /// Rename flags for `FileRenameInformationEx`.
+    pub flags: u32,
 }
 
 /// Objects related to the current I/O operation.

@@ -26,43 +26,44 @@ pub enum FileFlags {
 
 // Regex Matchers
 #[derive(Debug)]
-struct LocationRuleSpec {
+struct RuleSpec {
     pattern: &'static str,
     flag: FileFlags,
 }
 
 #[derive(Debug)]
-struct LocationRules {
+struct RegexRulesSet {
     patterns: RegexSet,
     flags: Vec<FileFlags>,
 }
 
-static LOCATION_RULE_SPECS: &[LocationRuleSpec] = &[
-    LocationRuleSpec {
+static LOCATION_RULE_SPECS: &[RuleSpec] = &[
+    RuleSpec {
         pattern: r"^c:\\users\\[^\\]+\\appdata\\local\\temp(?:\\.*|$)",
         flag: FileFlags::InTempLocation,
     },
-    LocationRuleSpec {
+    RuleSpec {
         pattern: r"^c:\\windows\\temp(?:\\.*|$)",
         flag: FileFlags::InTempLocation,
     },
-    LocationRuleSpec {
+    RuleSpec {
         pattern: r"^c:\\users\\[^\\]+\\appdata\\roaming\\microsoft\\windows\\start menu\\programs\\startup(?:\\.*|$)",
         flag: FileFlags::InAutoStartLocation,
     },
-    LocationRuleSpec {
+    RuleSpec {
         pattern: r"^c:\\programdata\\microsoft\\windows\\start menu\\programs\\startup(?:\\.*|$)",
         flag: FileFlags::InAutoStartLocation,
     },
+    // TODO: EXPAND
 ];
 
-static LOCATION_RULES: LazyLock<LocationRules> = LazyLock::new(|| {
+static LOCATION_RULES: LazyLock<RegexRulesSet> = LazyLock::new(|| {
     let patterns = RegexSet::new(LOCATION_RULE_SPECS.iter().map(|rule| rule.pattern))
         .expect("location regexes must compile");
 
     let flags = LOCATION_RULE_SPECS.iter().map(|rule| rule.flag).collect();
 
-    LocationRules { patterns, flags }
+    RegexRulesSet { patterns, flags }
 });
 
 // gets all matching location based flags based on a normalized path
@@ -90,3 +91,44 @@ fn normalize_location_path(path: &str) -> String {
         path
     }
 }
+
+////
+
+static EXECUTABLE_EXTENSIONS: &[&str] = &[
+    "exe",
+    "msi",
+    "ps1",
+    "bat",
+    "cmd",
+    "hta",
+    "vbs",
+    "vbe",
+    "js",
+    "jse",
+    "wsf",
+    "wsh",
+    "psc1",
+    "com",
+    "scr",
+    "dll"
+];
+
+pub fn get_rename_flags(prev_name: &str, new_name: &str) -> Option<Vec<FileFlags>>{
+    let previous_extension = std::path::Path::new(prev_name)
+        .extension().unwrap_or_default().to_ascii_lowercase();
+    let new_extension = std::path::Path::new(new_name)
+        .extension().unwrap_or_default().to_ascii_lowercase();
+
+    // TODO: Check if it makes sense to call the location check. Aka does rename = move
+    if previous_extension != new_extension {
+        if EXECUTABLE_EXTENSIONS.contains(&new_extension.to_str().unwrap_or_default()) {
+            return Some(vec![FileFlags::RenamedToExecutable]);
+        }
+        else {
+            return None;    
+        }
+    }
+    else {
+        return None;
+    }
+} 
