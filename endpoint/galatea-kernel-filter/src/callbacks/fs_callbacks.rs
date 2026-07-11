@@ -1,9 +1,5 @@
 use crate::ffi::flt::{
-    FILE_INTERNAL_INFORMATION, FILE_INTERNAL_INFORMATION_CLASS, FILE_RENAME_INFORMATION,
-    FILE_RENAME_INFORMATION_CLASS, FILE_RENAME_INFORMATION_EX_CLASS, FILE_RENAME_REPLACE_IF_EXISTS,
-    FLT_CALLBACK_DATA, FLT_POSTOP_FINISHED_PROCESSING, FLT_PREOP_SUCCESS_NO_CALLBACK,
-    FLT_PREOP_SUCCESS_WITH_CALLBACK, FLT_RELATED_OBJECTS, FltPostopCallbackStatus,
-    FltPreopCallbackStatus, FltQueryInformationFile,
+    FILE_INTERNAL_INFORMATION, FILE_INTERNAL_INFORMATION_CLASS, FILE_RENAME_INFORMATION, FILE_RENAME_INFORMATION_BYPASS_ACCESS_CHECK_CLASS, FILE_RENAME_INFORMATION_CLASS, FILE_RENAME_INFORMATION_EX_BYPASS_ACCESS_CHECK_CLASS, FILE_RENAME_INFORMATION_EX_CLASS, FILE_RENAME_REPLACE_IF_EXISTS, FLT_CALLBACK_DATA, FLT_POSTOP_FINISHED_PROCESSING, FLT_PREOP_SUCCESS_NO_CALLBACK, FLT_PREOP_SUCCESS_WITH_CALLBACK, FLT_RELATED_OBJECTS, FltPostopCallbackStatus, FltPreopCallbackStatus, FltQueryInformationFile,
 };
 use crate::io::filter_port::{is_agent_process, send_fs_telemetry};
 
@@ -11,7 +7,7 @@ use core::ffi::c_void;
 use core::mem::{offset_of, size_of};
 use galatea_shared::filter_port::{FSEventType, FSModOperation, GalateaFSEvent, RenameMeta};
 use wdk_sys::STATUS_SUCCESS;
-use wdk_sys::ntddk::{IoGetCurrentProcess, PsGetCurrentProcessId, PsGetProcessStartKey};
+use wdk_sys::ntddk::{IoGetCurrentProcess, PsGetCurrentProcessId, PsGetProcessStartKey, DbgPrint};
 
 /// Pre-create callback: logs every file open and allows it.
 ///
@@ -109,15 +105,19 @@ pub unsafe extern "C" fn pre_set_info(
         if is_agent_process() {//|| data.is_null() || flt_objects.is_null() {
             return FLT_PREOP_SUCCESS_NO_CALLBACK;
         }
-
+        //DbgPrint( b"GalateaFlt: [SET_INFO] Something\n\0".as_ptr() as *const i8);
         'op_eval: {
             if  !( data.is_null() || flt_objects.is_null()) {
+                //DbgPrint( b"GalateaFlt: [SET_INFO] 1\n\0".as_ptr() as *const i8);
                 let iopb = (*data).iopb;
                 if !iopb.is_null() {
                     let set_info = (*iopb).parameters.set_file_information;
-                    
+
+                    //DbgPrint( b"GalateaFlt: [SET_INFO] 2\n\0".as_ptr() as *const i8);
+
                     match set_info.file_information_class {
-                        FILE_RENAME_INFORMATION_CLASS | FILE_RENAME_INFORMATION_EX_CLASS => {
+                        FILE_RENAME_INFORMATION_CLASS | FILE_RENAME_INFORMATION_EX_CLASS | FILE_RENAME_INFORMATION_BYPASS_ACCESS_CHECK_CLASS | FILE_RENAME_INFORMATION_EX_BYPASS_ACCESS_CHECK_CLASS => {
+                            //DbgPrint( b"GalateaFlt: [SET_INFO] 3a\n\0".as_ptr() as *const i8);
                             let rename_name_offset = offset_of!(FILE_RENAME_INFORMATION, file_name);
                             if (set_info.length as usize) < rename_name_offset + size_of::<u16>() { break 'op_eval; }
         
@@ -149,6 +149,8 @@ pub unsafe extern "C" fn pre_set_info(
                                     new_path_len,
                                 );
 
+
+                                // TODO: This is pretty limited rn and will need expanding
                                 let flags = if set_info.file_information_class == FILE_RENAME_INFORMATION_CLASS {
                                     if set_info.argument.rename_or_eof.replace_if_exists != 0 {
                                         FILE_RENAME_REPLACE_IF_EXISTS
@@ -156,7 +158,7 @@ pub unsafe extern "C" fn pre_set_info(
                                 } else {
                                     rename_info.flags.flags
                                 };
-
+                                //DbgPrint( b"GalateaFlt: [SET_INFO] %wZ\n\0".as_ptr() as *const i8, &(*file_obj).FileName,);
                                 let event = GalateaFSEvent {
                                     process_id: pid,
                                     process_start_key: PsGetProcessStartKey(IoGetCurrentProcess()),
@@ -173,12 +175,24 @@ pub unsafe extern "C" fn pre_set_info(
 
                             }
                         },
-                        _ => {}
+                        _ => {
+                            let file_obj = (*flt_objects).file_object;
+                            if !file_obj.is_null() && !(*file_obj).FileName.Buffer.is_null() {
+                                let file_name = &(*file_obj).FileName;
+                                let copy_len = ((file_name.Length as usize) / 2).min(259);
+                                let mut file_path = [0u16; 260];
+                                core::ptr::copy_nonoverlapping(file_name.Buffer, file_path.as_mut_ptr(), copy_len);
+                                //DbgPrint( b"GalateaFlt: [SET_INFO] %wZ\n\0".as_ptr() as *const i8, &(*file_obj).FileName,);
+                            }
+                            //DbgPrint( b"GalateaFlt: [SET_INFO] 3b (%d)\n\0".as_ptr() as *const i8, set_info.file_information_class);
+                        }
                     }
                 }
             }    
         //DbgPrint( b"GalateaFlt: [SET_INFO] %wZ\n\0".as_ptr() as *const i8, &(*file_obj).FileName,);
         }
+    
+        //DbgPrint( b"GalateaFlt: [SET_INFO] Exit\n\0".as_ptr() as *const i8);
     }
     FLT_PREOP_SUCCESS_NO_CALLBACK
 }
