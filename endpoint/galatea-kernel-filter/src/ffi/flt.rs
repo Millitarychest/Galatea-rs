@@ -66,8 +66,15 @@ pub const FLT_PORT_ALL_ACCESS: AccessMask = 0x001f_0000 | FLT_PORT_CONNECT;
 /// `FILE_INFORMATION_CLASS` value for a standard rename request.
 pub const FILE_RENAME_INFORMATION_CLASS: i32 = 10;
 
+/// `FILE_INFORMATION_CLASS` value for an standard rename request with bypass.
+pub const FILE_RENAME_INFORMATION_BYPASS_ACCESS_CHECK_CLASS: i32 = 56;
+
 /// `FILE_INFORMATION_CLASS` value for an extended rename request.
 pub const FILE_RENAME_INFORMATION_EX_CLASS: i32 = 65;
+
+/// `FILE_INFORMATION_CLASS` value for an extended rename request with bypass.
+pub const FILE_RENAME_INFORMATION_EX_BYPASS_ACCESS_CHECK_CLASS: i32 = 66;
+
 
 /// Allows a rename to replace an existing destination.
 pub const FILE_RENAME_REPLACE_IF_EXISTS: u32 = 0x0000_0001;
@@ -252,8 +259,14 @@ pub union FLT_PARAMETERS {
 pub struct FLT_SET_FILE_INFORMATION {
     /// Size of the information buffer in bytes.
     pub length: u32,
+    /// Padding required by pointer alignment on x64.
+    #[cfg(target_pointer_width = "64")]
+    pub _padding_before_file_information_class: u32,
     /// Requested file information class.
     pub file_information_class: i32,
+    /// Padding before the following pointer on x64.
+    #[cfg(target_pointer_width = "64")]
+    pub _padding_after_file_information_class: u32,
     /// Parent target used by rename and hard-link operations.
     pub _parent_of_target: *mut FILE_OBJECT,
     /// Class-specific flags.
@@ -301,6 +314,30 @@ pub struct FILE_RENAME_INFORMATION {
     /// First UTF-16 code unit of the variable-length destination name.
     pub file_name: [u16; 1],
 }
+
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+    assert!(core::mem::offset_of!(FLT_IO_PARAMETER_BLOCK, parameters) == 24);
+    assert!(core::mem::offset_of!(FLT_SET_FILE_INFORMATION, length) == 0);
+    assert!(core::mem::offset_of!(FLT_SET_FILE_INFORMATION, file_information_class) == 8);
+    assert!(core::mem::offset_of!(FLT_SET_FILE_INFORMATION, _parent_of_target) == 16);
+    assert!(core::mem::offset_of!(FLT_SET_FILE_INFORMATION, argument) == 24);
+    assert!(core::mem::offset_of!(FLT_SET_FILE_INFORMATION, info_buffer) == 32);
+    assert!(core::mem::size_of::<FLT_SET_FILE_INFORMATION>() == 40);
+    assert!(core::mem::offset_of!(FILE_RENAME_INFORMATION, file_name) == 20);
+};
+
+#[cfg(target_pointer_width = "32")]
+const _: () = {
+    assert!(core::mem::offset_of!(FLT_IO_PARAMETER_BLOCK, parameters) == 16);
+    assert!(core::mem::offset_of!(FLT_SET_FILE_INFORMATION, length) == 0);
+    assert!(core::mem::offset_of!(FLT_SET_FILE_INFORMATION, file_information_class) == 4);
+    assert!(core::mem::offset_of!(FLT_SET_FILE_INFORMATION, _parent_of_target) == 8);
+    assert!(core::mem::offset_of!(FLT_SET_FILE_INFORMATION, argument) == 12);
+    assert!(core::mem::offset_of!(FLT_SET_FILE_INFORMATION, info_buffer) == 16);
+    assert!(core::mem::size_of::<FLT_SET_FILE_INFORMATION>() == 20);
+    assert!(core::mem::offset_of!(FILE_RENAME_INFORMATION, file_name) == 12);
+};
 
 /// First field of [`FILE_RENAME_INFORMATION`].
 #[repr(C)]

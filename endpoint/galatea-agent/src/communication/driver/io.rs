@@ -237,12 +237,14 @@ fn kf_listen_for_messages(port_handle: HANDLE, running: Arc<AtomicBool>) -> Resu
                             original_name: None,
                             matching_flags: Some(matching_flags),
                         };
-                        mimic_log!("[FILE_CONTEXT] write_telemetry key={key:?}");
+                        
 
                         let fs_cache = FILE_CONTEXT_CACHE.get_or_init(FileContextCache::new);
                         fs_cache.write_telemetry(key, update);
                     }
-                    galatea_shared::filter_port::FSEventType::FileModify(fsops) => match fsops {
+                    galatea_shared::filter_port::FSEventType::FileModify(fsops) => {
+                        mimic_log!("Modified something");
+                        match fsops {
                         // =========================================
                         // RENAME
                         // =========================================
@@ -264,6 +266,8 @@ fn kf_listen_for_messages(port_handle: HANDLE, running: Arc<AtomicBool>) -> Resu
 
                             let matching_flags = file_signatures::get_rename_flags(&normalized_path, &normalized_new_path);
 
+                            mimic_log!("[FILE_CONTEXT] rename_telemetry file : {normalized_path:?} to: {normalized_new_path:?}");
+
                             let update = FileTelemetryUpdate {
                                 normalized_file_path: Some(normalized_new_path),
                                 file_index,
@@ -273,12 +277,11 @@ fn kf_listen_for_messages(port_handle: HANDLE, running: Arc<AtomicBool>) -> Resu
                                 original_name: Some(normalized_path),
                                 matching_flags,
                             };
-                            //mimic_log!("[FILE_CONTEXT] rename_telemetry key={key:?}");
 
                             let fs_cache = FILE_CONTEXT_CACHE.get_or_init(FileContextCache::new);
                             fs_cache.write_telemetry(key, update);
                         }
-                    },
+                    }},
                     galatea_shared::filter_port::FSEventType::FileDelete => {}
                 }
             }
