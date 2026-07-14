@@ -1,9 +1,9 @@
 use axum::{http::StatusCode, response::Html};
 
-use crate::db::agent_db::{get_all_agents, AgentInfo, AgentStatus};
+use super::layout;
+use crate::db::agent_db::{AgentInfo, AgentStatus, get_all_agents};
 use crate::state::AppContext;
 use crate::utils::fmt::format_timestamp;
-use super::layout;
 
 /// GET / — Fleet overview dashboard
 pub async fn serve_dashboard() -> (StatusCode, Html<String>) {
@@ -36,9 +36,18 @@ pub async fn serve_dashboard() -> (StatusCode, Html<String>) {
 
 fn render_dashboard_content(agents: &[AgentInfo]) -> String {
     let total = agents.len();
-    let online = agents.iter().filter(|a| a.status == AgentStatus::Online).count();
-    let offline = agents.iter().filter(|a| a.status == AgentStatus::Offline).count();
-    let stale = agents.iter().filter(|a| a.status == AgentStatus::Stale).count();
+    let online = agents
+        .iter()
+        .filter(|a| a.status == AgentStatus::Online)
+        .count();
+    let offline = agents
+        .iter()
+        .filter(|a| a.status == AgentStatus::Offline)
+        .count();
+    let stale = agents
+        .iter()
+        .filter(|a| a.status == AgentStatus::Stale)
+        .count();
 
     let table_rows = if agents.is_empty() {
         r#"<tr>
@@ -48,15 +57,21 @@ fn render_dashboard_content(agents: &[AgentInfo]) -> String {
                     <p>No agents registered yet. Deploy an agent to get started.</p>
                 </div>
             </td>
-        </tr>"#.to_string()
+        </tr>"#
+            .to_string()
     } else {
-        agents.iter()
+        agents
+            .iter()
             .map(|agent| {
-                let last_heartbeat = agent.last_heartbeat_at.as_deref().map(format_timestamp).unwrap_or_else(|| "Never".to_string());
-                let short_id = if agent.agent_id.len() > 8 { 
-                    &agent.agent_id[..8] 
-                } else { 
-                    &agent.agent_id 
+                let last_heartbeat = agent
+                    .last_heartbeat_at
+                    .as_deref()
+                    .map(format_timestamp)
+                    .unwrap_or_else(|| "Never".to_string());
+                let short_id = if agent.agent_id.len() > 8 {
+                    &agent.agent_id[..8]
+                } else {
+                    &agent.agent_id
                 };
                 format!(
                     r#"<tr>
@@ -75,7 +90,8 @@ fn render_dashboard_content(agents: &[AgentInfo]) -> String {
                     </tr>"#,
                     agent.status.as_str(),
                     agent.status.as_str(),
-                    agent.agent_id, agent.hostname,
+                    agent.agent_id,
+                    agent.hostname,
                     short_id,
                     agent.os_version,
                     agent.agent_version,

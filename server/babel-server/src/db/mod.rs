@@ -69,24 +69,25 @@ pub fn init_db_pool(db_path: &str) -> error::Result<DbPool> {
     Ok(pool)
 }
 
-pub fn fetch_persisted_config(pool: &DbPool) -> Option<AppConfig>{
+pub fn fetch_persisted_config(pool: &DbPool) -> Option<AppConfig> {
     let conn = match pool.get() {
         Ok(c) => c,
-        Err(_) => {return None}
+        Err(_) => return None,
     };
 
-    let mut stmt = match conn.prepare("SELECT registration_secret FROM server_config WHERE id = 1 LIMIT 1") {
-        Ok(s) => s,
-        Err(_) => {return None}
-    };
+    let mut stmt =
+        match conn.prepare("SELECT registration_secret FROM server_config WHERE id = 1 LIMIT 1") {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
 
-    let config: Option<AppConfig> = match stmt.query_one([], |row|{
+    let config: Option<AppConfig> = match stmt.query_one([], |row| {
         Ok(AppConfig {
             agent_registration_secret: row.get(0)?,
         })
     }) {
         Ok(r) => Some(r),
-        Err(_) => {None}
+        Err(_) => None,
     };
 
     config

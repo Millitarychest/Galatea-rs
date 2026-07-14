@@ -1,4 +1,4 @@
-use crate::app::Message;
+use crate::app::{Message, ViewMode};
 use crate::theme::AppTheme;
 use iced::widget::{Space, button, column, container, row, text, text_input};
 use iced::{Element, Length};
@@ -6,10 +6,13 @@ use iced::{Element, Length};
 pub fn view(
     connected: bool,
     detection_count: usize,
+    file_context_count: usize,
     filter: &'_ str,
     current_theme: AppTheme,
     paused: bool,
     pending_count: usize,
+    view_mode: ViewMode,
+    loading_file_contexts: bool,
 ) -> Element<'_, Message> {
     let status_indicator = if connected {
         text("●").style(|_theme| text::Style {
@@ -22,9 +25,13 @@ pub fn view(
     };
 
     let status_text = if connected {
-        format!("Connected | {} detections", detection_count)
+        format!("Connected | {detection_count} detections | {file_context_count} files")
     } else {
         "Disconnected - waiting for agent...".to_string()
+    };
+    let filter_placeholder = match view_mode {
+        ViewMode::Detections => "Filter by process name or PID...",
+        ViewMode::FileContexts => "Filter by path, file index, process, or verdict...",
     };
 
     let header_content = row![
@@ -33,8 +40,56 @@ pub fn view(
         text(status_text).size(14),
         // Spacer to push search to center
         Space::new().width(Length::Fill),
+        button(
+            container(text("Detections").size(12))
+                .width(Length::Fixed(100.0))
+                .center_x(Length::Fill)
+        )
+        .on_press(Message::ViewModeChanged(ViewMode::Detections))
+        .style(move |theme: &iced::Theme, status| tab_button_style(
+            theme,
+            status,
+            view_mode == ViewMode::Detections
+        )),
+        button(
+            container(text("Files").size(12))
+                .width(Length::Fixed(80.0))
+                .center_x(Length::Fill)
+        )
+        .on_press(Message::ViewModeChanged(ViewMode::FileContexts))
+        .style(move |theme: &iced::Theme, status| tab_button_style(
+            theme,
+            status,
+            view_mode == ViewMode::FileContexts
+        )),
+        button(
+            container(
+                text(if loading_file_contexts {
+                    "Refreshing"
+                } else {
+                    "Refresh"
+                })
+                .size(12)
+            )
+            .width(Length::Fixed(100.0))
+            .center_x(Length::Fill)
+        )
+        .on_press(Message::RefreshFileContexts)
+        .style(|theme: &iced::Theme, status| {
+            button::Style {
+                background: Some(iced::Background::Color(
+                    theme.extended_palette().secondary.base.color,
+                )),
+                text_color: theme.palette().text,
+                border: iced::Border {
+                    radius: 6.0.into(),
+                    ..Default::default()
+                },
+                ..button::primary(theme, status)
+            }
+        }),
         // Center: search bar with rounded corners
-        text_input("Filter by process name or PID...", filter)
+        text_input(filter_placeholder, filter)
             .on_input(Message::FilterChanged)
             .width(Length::Fixed(400.0))
             .padding(8)
@@ -144,4 +199,26 @@ pub fn view(
     ]
     .spacing(0)
     .into()
+}
+
+fn tab_button_style(theme: &iced::Theme, status: button::Status, active: bool) -> button::Style {
+    let background = if active {
+        theme.palette().primary
+    } else {
+        theme.extended_palette().secondary.base.color
+    };
+
+    button::Style {
+        background: Some(iced::Background::Color(background)),
+        text_color: if active {
+            iced::Color::BLACK
+        } else {
+            theme.palette().text
+        },
+        border: iced::Border {
+            radius: 6.0.into(),
+            ..Default::default()
+        },
+        ..button::primary(theme, status)
+    }
 }

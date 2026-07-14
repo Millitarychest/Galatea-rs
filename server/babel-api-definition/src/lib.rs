@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::secrets::{Secret, expose_secret};
 
-/// Module provides a "Secret" wrapper type used to redact PII or sensitive info in logging 
+/// Module provides a "Secret" wrapper type used to redact PII or sensitive info in logging
 pub mod secrets;
 
 ////////////Agent Api Body/////////////

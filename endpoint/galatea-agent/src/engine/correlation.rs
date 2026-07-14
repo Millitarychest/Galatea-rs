@@ -1,18 +1,18 @@
 use chrono::Utc;
-use mimic_core::mimic_log;
 use galatea_shared::GalateaVerdict;
 use galatea_shared::ipc::{DetectionDetails, DetectionEvent, IpcMessage, ProcessInfo, Verdict};
+use mimic_core::mimic_log;
 use std::sync::mpsc::Sender;
 use uuid::Uuid;
 
+use crate::communication::driver::io::ks_send_verdict;
 use crate::communication::ipc::SendHandle;
 use crate::probes::process_info;
 use crate::static_analyzer::AnalysisResult;
-use crate::communication::driver::io::ks_send_verdict;
 
 /// Correlates an analysis result with process metadata, broadcasts the detection
 /// event to IPC clients, and sends the verdict to the kernel driver.
-pub fn correlate_and_broadcast(
+pub fn broadcast_static_process_verdict(
     result: AnalysisResult,
     driver: SendHandle,
     ipc_sender: Option<&Sender<IpcMessage>>,

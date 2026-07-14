@@ -19,32 +19,39 @@ use windows::{
     core::w,
 };
 
-use mimic_core::{error, mimic_bail, mimic_error, mimic_log, mimic_success, privilege};
 use galatea_shared::{GalateaEvent, IOCTL_GET_EVENT};
+use mimic_core::{error, mimic_bail, mimic_error, mimic_log, mimic_success, privilege};
 
-mod static_analyzer;
 mod cache;
+mod communication;
 mod config;
 mod db;
 mod engine;
 mod injector;
 mod logger;
 mod probes;
+mod static_analyzer;
 mod utils;
-mod communication;
 
 use crate::{
-    static_analyzer::{MlEngine, PackerSignatureEngine}, communication::ipc::SendHandle,
+    cache::{file_context_cache::FileContextCache, static_analyzer_cache::StaticResultCache},
+    communication::ipc::ipc_server::IpcServer,
 };
-use crate::{cache::static_analyzer_cache::StaticResultCache, communication::ipc::ipc_server::IpcServer};
+use crate::{
+    communication::ipc::SendHandle,
+    static_analyzer::{MlEngine, PackerSignatureEngine},
+};
 pub use config::*;
 
 static GLOBAL_LISTENER_HANDLE: AtomicUsize = AtomicUsize::new(0);
 static STATIC_RESULT_CACHE: OnceLock<StaticResultCache> = OnceLock::new();
 
+//Context Caches
+static FILE_CONTEXT_CACHE: OnceLock<FileContextCache> = OnceLock::new();
+
 fn main() -> error::Result<()> {
     // Setup file logging
-    
+
     let current_dir = utils::exe_directory();
     let log_path = current_dir.join(LOG_FILE);
 
@@ -101,14 +108,8 @@ fn main() -> error::Result<()> {
                 }
             }
             None => {
-                mimic_error!(
-                    "Failed signature load due to non-UTF8 path: {:?}",
-                    sig_path
-                );
-                mimic_bail!(
-                    "Failed signature load due to non-UTF8 path: {:?}",
-                    sig_path
-                );
+                mimic_error!("Failed signature load due to non-UTF8 path: {:?}", sig_path);
+                mimic_bail!("Failed signature load due to non-UTF8 path: {:?}", sig_path);
             }
         }
     } else {
@@ -144,6 +145,15 @@ fn main() -> error::Result<()> {
         None
     };
     let ml_engine = Arc::new(ml_engine);
+
+    //filter
+    let _filter_listener = match communication::driver::io::kf_connect_and_listen() {
+        Ok(listener) => Some(listener),
+        Err(e) => {
+            mimic_error!("Failed to start filter communication listener: {e}");
+            None
+        }
+    };
 
     // Setup worker threads
     let n_workers = 16; // Adjust
@@ -223,6 +233,8 @@ fn main() -> error::Result<()> {
         mimic_error!("Failed to register with server: {}", e);
     }
 
+    mimic_log!("Entering kernel event wait loop.");
+
     loop {
         let mut event: GalateaEvent = unsafe { std::mem::zeroed() };
         let mut bytes_returned: u32 = 0;
@@ -242,6 +254,15 @@ fn main() -> error::Result<()> {
 
         match result {
             Ok(_) => {
+                if bytes_returned < size_of::<GalateaEvent>() as u32 {
+                    mimic_error!(
+                        "IOCTL_GET_EVENT returned short event buffer: {} bytes (expected {}). Continuing.",
+                        bytes_returned,
+                        size_of::<GalateaEvent>()
+                    );
+                    continue;
+                }
+
                 let worker_handle = safe_handle.clone();
                 let worker_db = db_pool.clone();
                 let worker_sig = sig_engine.clone();
@@ -261,7 +282,8 @@ fn main() -> error::Result<()> {
                 });
             }
             Err(e) => {
-                mimic_error!("DeviceIoControl failed: {:?}", e);
+                mimic_error!("IOCTL_GET_EVENT DeviceIoControl failed: {:?}", e);
+                mimic_error!("Leaving kernel event wait loop; agent will shut down.");
                 break;
             }
         }
@@ -310,7 +332,7 @@ fn init_driver() -> error::Result<()> {
     } else {
         mimic_success!("Driver is already active.");
     }
-    
+
     Ok(())
 }
 

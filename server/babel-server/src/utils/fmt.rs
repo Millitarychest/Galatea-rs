@@ -1,5 +1,3 @@
-
-
 pub fn format_timestamp(ts: &str) -> String {
     // Parse RFC3339 format like "2026-02-13T22:34:19.056074500+00:00"
     // and return "2026-02-13 22:34:19"

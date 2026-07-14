@@ -7,7 +7,7 @@ pub const AGENT_PSK: &str = "galatea_secret";
 
 // NAMES
 pub const DRIVER_SERVICE_NAME: &str = "Galatea";
-pub const DRIVER_FILE_NAME: &str = "galatea_kernel_sensor.sys";
+pub const DRIVER_FILE_NAME: &str = "driver/galatea_kernel_sensor.sys";
 pub const DB_FILE_NAME: &str = "galatea_dataset.db";
 pub const HOOK_FILE_NAME: &str = "galatea_userland_hooks.dll";
 

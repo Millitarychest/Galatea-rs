@@ -3,11 +3,11 @@ use axum::http::StatusCode;
 use axum::response::Html;
 use babel_api_definition::{TelemetryEvent, TelemetryVerdict};
 
-use crate::db::agent_db::{get_agent_by_id, AgentInfo};
+use super::layout;
+use crate::db::agent_db::{AgentInfo, get_agent_by_id};
 use crate::db::telemetry_db;
 use crate::state::AppContext;
 use crate::utils::fmt::format_timestamp;
-use super::layout;
 
 /// GET /agents/{id} - Agent detail page
 pub async fn serve_agent(Path(id): Path<String>) -> (StatusCode, Html<String>) {
@@ -103,13 +103,10 @@ fn render_timeline_rows(events: &[telemetry_db::TelemetryListItem]) -> String {
                     </div>
                 </td>
             </tr>"#
-        .to_string();
+            .to_string();
     }
 
-    events
-        .iter()
-        .map(render_timeline_row)
-        .collect::<String>()
+    events.iter().map(render_timeline_row).collect::<String>()
 }
 
 fn render_timeline_row(event: &telemetry_db::TelemetryListItem) -> String {
@@ -128,12 +125,20 @@ fn render_timeline_row(event: &telemetry_db::TelemetryListItem) -> String {
                 .unwrap_or_else(|| "-".to_string());
 
             match process.verdict {
-                TelemetryVerdict::Allowed => {
-                    (name, process.process_id.to_string(), score, "allowed", "allowed")
-                }
-                TelemetryVerdict::Blocked => {
-                    (name, process.process_id.to_string(), score, "blocked", "blocked")
-                }
+                TelemetryVerdict::Allowed => (
+                    name,
+                    process.process_id.to_string(),
+                    score,
+                    "allowed",
+                    "allowed",
+                ),
+                TelemetryVerdict::Blocked => (
+                    name,
+                    process.process_id.to_string(),
+                    score,
+                    "blocked",
+                    "blocked",
+                ),
             }
         }
         None => {

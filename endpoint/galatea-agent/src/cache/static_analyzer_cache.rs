@@ -2,12 +2,12 @@ use std::collections::HashMap;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, SystemTime};
 
-use mimic_core::mimic_log;
 use galatea_shared::ipc::DetectionDetails;
+use mimic_core::mimic_log;
 
 use crate::probes::file_identity::get_file_index;
 
-use crate::SCAN_WAIT_TIMEOUT_SECS;
+use crate::{SCAN_WAIT_TIMEOUT_SECS, STAT_BLOCK_THRESHOLD, STAT_SUSPICIOUS_THRESHOLD};
 
 /// Maximum time a waiter blocks for an in-flight scan before falling through.
 const SCAN_WAIT_TIMEOUT: Duration = Duration::from_secs(SCAN_WAIT_TIMEOUT_SECS);
@@ -64,11 +64,9 @@ impl ScanBarrier {
             Err(_) => return WaitResult::Failed,
         };
 
-        let result = self
-            .done
-            .wait_timeout_while(guard, SCAN_WAIT_TIMEOUT, |s| {
-                matches!(s, ScanState::Pending)
-            });
+        let result = self.done.wait_timeout_while(guard, SCAN_WAIT_TIMEOUT, |s| {
+            matches!(s, ScanState::Pending)
+        });
 
         match result {
             Ok((guard, timeout)) => {
@@ -177,9 +175,7 @@ impl StaticResultCache {
     /// Creates a new cache with a capacity of 10 000 completed entries.
     pub fn new() -> Self {
         Self {
-            completed: moka::sync::Cache::builder()
-                .max_capacity(10_000)
-                .build(),
+            completed: moka::sync::Cache::builder().max_capacity(10_000).build(),
             in_progress: Mutex::new(HashMap::new()),
         }
     }
@@ -233,10 +229,12 @@ impl StaticResultCache {
         let mut in_progress = match self.in_progress.lock() {
             Ok(g) => g,
             // Poisoned lock — scan independently, no-op guard (key=None won't clean up)
-            Err(_) => return ScanOutcome::Acquired(ScanGuard {
-                cache: self as *const StaticResultCache,
-                key: None,
-            }),
+            Err(_) => {
+                return ScanOutcome::Acquired(ScanGuard {
+                    cache: self as *const StaticResultCache,
+                    key: None,
+                });
+            }
         };
 
         if let Some(barrier) = in_progress.get(&key) {
@@ -254,11 +252,7 @@ impl StaticResultCache {
     }
 
     /// Records a completed scan — called internally by [`ScanGuard::complete`].
-    fn complete_scan_inner(
-        &self,
-        key: &str,
-        scan: CompletedScan,
-    ) {
+    fn complete_scan_inner(&self, key: &str, scan: CompletedScan) {
         // Insert into completed cache
         self.completed.insert(
             key.to_string(),
@@ -292,5 +286,49 @@ impl StaticResultCache {
     pub fn invalidate_result(&self, raw_path: &str) {
         let key = Self::canonicalize_key(raw_path);
         self.completed.invalidate(&key);
+    }
+}
+
+/// File Reputation
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileVerdict {
+    Benign,
+    Suspicious,
+    Malicious,
+}
+
+///  Simplified Result data
+#[derive(Debug, Clone)]
+pub struct ScanSummary {
+    pub verdict: FileVerdict,
+    pub threat_score: i32,
+    pub file_size: u64,
+    pub mod_time: SystemTime,
+    pub file_index: Option<u64>,
+}
+
+impl From<&CompletedScan> for ScanSummary {
+    fn from(value: &CompletedScan) -> Self {
+        let verdict = if value.details.threat_score >= STAT_BLOCK_THRESHOLD {
+            FileVerdict::Malicious
+        } else if value.details.threat_score >= STAT_SUSPICIOUS_THRESHOLD {
+            FileVerdict::Suspicious
+        } else {
+            FileVerdict::Benign
+        };
+
+        ScanSummary {
+            verdict,
+            threat_score: value.details.threat_score,
+            file_size: value.file_size,
+            mod_time: value.mod_time,
+            file_index: value.file_index,
+        }
+    }
+}
+
+impl From<CompletedScan> for ScanSummary {
+    fn from(value: CompletedScan) -> Self {
+        Self::from(&value)
     }
 }

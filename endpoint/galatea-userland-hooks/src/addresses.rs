@@ -1,6 +1,12 @@
 use std::collections::BTreeMap;
 
-use windows::{Win32::{System::LibraryLoader::{GetModuleHandleA, GetProcAddress}, UI::WindowsAndMessaging::{MB_OK, MessageBoxA}}, core::s};
+use windows::{
+    Win32::{
+        System::LibraryLoader::{GetModuleHandleA, GetProcAddress},
+        UI::WindowsAndMessaging::{MB_OK, MessageBoxA},
+    },
+    core::s,
+};
 
 use crate::stubs::{nt_open_process, virtual_alloc_ex};
 
@@ -54,7 +60,6 @@ impl<'a> StubAddresses<'a> {
             Some(address) => address as *const (),
         } as usize;
 
-
         let mut hm: BTreeMap<&str, Addresses> = BTreeMap::new();
         hm.insert(
             "NtOpenProcess",
@@ -70,7 +75,6 @@ impl<'a> StubAddresses<'a> {
                 ntdll: zwavm,
             },
         );
-        
 
         Self { addresses: hm }
     }
