@@ -12,7 +12,7 @@ use windows::{
     core::PCSTR,
 };
 
-use crate::ssn::SYSCALL_NUMBER;
+use crate::{etw::events, ssn::SYSCALL_NUMBER};
 
 /// Injected stub for ZwOpenProcess and NtOpenProcess
 pub fn nt_open_process(
@@ -29,6 +29,9 @@ pub fn nt_open_process(
         if target_pid != pid {
             println!("PID: {pid}, target: {target_pid}");
         }
+        
+        events().etw_process_handle_opened(None, pid, target_pid);
+
     }
 
     let msg = "Open Process Hook!\n\0";

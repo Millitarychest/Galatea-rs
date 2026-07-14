@@ -12,6 +12,7 @@ mod addresses;
 mod ssn;
 mod stubs;
 mod threads;
+mod etw;
 use crate::{
     addresses::StubAddresses,
     ssn::SYSCALL_NUMBER,
@@ -21,11 +22,11 @@ use crate::{
 unsafe extern "system" fn init_hooks(_: *mut c_void) -> u32 {
     let suspended_handels = suspend_all_threads();
 
+    // create hooks
     let stub_addresses = StubAddresses::new();
-
     patch(&stub_addresses);
-
     resume_all_threads(suspended_handels);
+    
     return STATUS_SUCCESS.0 as _;
 }
 
