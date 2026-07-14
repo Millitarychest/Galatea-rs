@@ -283,6 +283,7 @@ fn file_flag_snapshots(flags: &[file_signatures::FileFlags]) -> Vec<FileFlagSnap
     snapshots
 }
 
+// This is a hacky solution :/ if they overlap maybe create a shared def
 fn file_flag_snapshot(flag: file_signatures::FileFlags) -> Option<FileFlagSnapshot> {
     match flag {
         file_signatures::FileFlags::None => None,
@@ -303,6 +304,7 @@ fn file_flag_snapshot(flag: file_signatures::FileFlags) -> Option<FileFlagSnapsh
         file_signatures::FileFlags::RenamedToExecutable => {
             Some(FileFlagSnapshot::RenamedToExecutable)
         }
+        file_signatures::FileFlags::FileCreateSuccess => Some(FileFlagSnapshot::FileCreateSuccess),
     }
 }
 

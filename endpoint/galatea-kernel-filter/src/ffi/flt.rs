@@ -79,6 +79,24 @@ pub const FILE_RENAME_INFORMATION_EX_BYPASS_ACCESS_CHECK_CLASS: i32 = 66;
 /// Allows a rename to replace an existing destination.
 pub const FILE_RENAME_REPLACE_IF_EXISTS: u32 = 0x0000_0001;
 
+/// Create result indicating that an existing file was superseded.
+pub const FILE_SUPERSEDED: usize = 0x0000_0000;
+
+/// Create result indicating that an existing file was opened.
+pub const FILE_OPENED: usize = 0x0000_0001;
+
+/// Create result indicating that a new file was created.
+pub const FILE_CREATED: usize = 0x0000_0002;
+
+/// Create result indicating that an existing file was overwritten.
+pub const FILE_OVERWRITTEN: usize = 0x0000_0003;
+
+/// Create result indicating that the target file already exists.
+pub const FILE_EXISTS: usize = 0x0000_0004;
+
+/// Create result indicating that the target file does not exist.
+pub const FILE_DOES_NOT_EXIST: usize = 0x0000_0005;
+
 // ---- Callback signatures ----
 
 /// Pre-operation callback function pointer.

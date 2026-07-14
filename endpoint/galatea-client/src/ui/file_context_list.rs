@@ -337,6 +337,7 @@ fn flag_label(flag: FileFlagSnapshot) -> &'static str {
         FileFlagSnapshot::InAutoStartLocation => "InAutoStartLocation",
         FileFlagSnapshot::InTempLocation => "InTempLocation",
         FileFlagSnapshot::RenamedToExecutable => "RenamedToExecutable",
+        FileFlagSnapshot::FileCreateSuccess => "FileCreated",
     }
 }
 

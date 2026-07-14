@@ -211,8 +211,36 @@ fn kf_listen_for_messages(port_handle: HANDLE, running: Arc<AtomicBool>) -> Resu
                 };
 
                 match fs_event.event_type {
-                    galatea_shared::filter_port::FSEventType::FileOpen => {}
-                    galatea_shared::filter_port::FSEventType::FileCreate => {}
+                    galatea_shared::filter_port::FSEventType::FileOpen => {} // NOTE: Probably not gonna include this in the poc design? Looking at the prints it seems very spammy and i have no actual plan to make use of it yet
+                    galatea_shared::filter_port::FSEventType::FileCreate => {
+                        // =========================================
+                        // Create
+                        // =========================================
+                        let normalized_path = file_context_cache::fsc_canonicalize_path(&path);
+                        let key = file_context_cache::FileContextKey::from_identity(
+                            &normalized_path,
+                            file_index,
+                        );
+                        let mut matching_flags = vec![FileFlags::FileCreateSuccess];
+                        matching_flags
+                            .append(&mut file_signatures::get_location_flags(&normalized_path));
+
+                        let update = FileTelemetryUpdate {
+                            normalized_file_path: Some(normalized_path),
+                            file_index,
+                            // Process image resolved later once the process
+                            // context cache is wired up TODO: change to get image from context
+                            last_write_process: None,
+                            last_write_time: Some(SystemTime::now()),
+                            last_rename_time: None,
+                            original_name: None,
+                            matching_flags: Some(matching_flags),
+                        };
+
+                        let fs_cache = FILE_CONTEXT_CACHE.get_or_init(FileContextCache::new);
+                        fs_cache.write_telemetry(key, update);
+
+                    }
                     galatea_shared::filter_port::FSEventType::FileWrite => {
                         // =========================================
                         // WRITE
@@ -237,7 +265,6 @@ fn kf_listen_for_messages(port_handle: HANDLE, running: Arc<AtomicBool>) -> Resu
                             original_name: None,
                             matching_flags: Some(matching_flags),
                         };
-                        
 
                         let fs_cache = FILE_CONTEXT_CACHE.get_or_init(FileContextCache::new);
                         fs_cache.write_telemetry(key, update);

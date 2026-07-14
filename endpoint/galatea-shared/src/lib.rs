@@ -194,6 +194,8 @@ pub mod ipc {
     /// Serializable file context flag for GUI display.
     #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
     pub enum FileFlagSnapshot {
+        /// A file was created but not necessarily writen to
+        FileCreateSuccess,
         /// A file write completed successfully.
         FileWriteSuccess,
         /// File is explicitly allowlisted.

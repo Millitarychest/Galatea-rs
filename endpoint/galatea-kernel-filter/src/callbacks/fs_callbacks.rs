@@ -1,34 +1,37 @@
 use crate::ffi::flt::{
-    FILE_INTERNAL_INFORMATION, FILE_INTERNAL_INFORMATION_CLASS, FILE_RENAME_INFORMATION, FILE_RENAME_INFORMATION_BYPASS_ACCESS_CHECK_CLASS, FILE_RENAME_INFORMATION_CLASS, FILE_RENAME_INFORMATION_EX_BYPASS_ACCESS_CHECK_CLASS, FILE_RENAME_INFORMATION_EX_CLASS, FILE_RENAME_REPLACE_IF_EXISTS, FLT_CALLBACK_DATA, FLT_POSTOP_FINISHED_PROCESSING, FLT_PREOP_SUCCESS_NO_CALLBACK, FLT_PREOP_SUCCESS_WITH_CALLBACK, FLT_RELATED_OBJECTS, FltPostopCallbackStatus, FltPreopCallbackStatus, FltQueryInformationFile,
+    FILE_CREATED, FILE_INTERNAL_INFORMATION, FILE_INTERNAL_INFORMATION_CLASS, FILE_OVERWRITTEN, FILE_RENAME_INFORMATION, FILE_RENAME_INFORMATION_BYPASS_ACCESS_CHECK_CLASS, FILE_RENAME_INFORMATION_CLASS, FILE_RENAME_INFORMATION_EX_BYPASS_ACCESS_CHECK_CLASS, FILE_RENAME_INFORMATION_EX_CLASS, FILE_RENAME_REPLACE_IF_EXISTS, FILE_SUPERSEDED, FLT_CALLBACK_DATA, FLT_POSTOP_FINISHED_PROCESSING, FLT_PREOP_SUCCESS_NO_CALLBACK, FLT_PREOP_SUCCESS_WITH_CALLBACK, FLT_RELATED_OBJECTS, FltPostopCallbackStatus, FltPreopCallbackStatus, FltQueryInformationFile,
 };
 use crate::io::filter_port::{is_agent_process, send_fs_telemetry};
 
 use core::ffi::c_void;
 use core::mem::{offset_of, size_of};
 use galatea_shared::filter_port::{FSEventType, FSModOperation, GalateaFSEvent, RenameMeta};
-use wdk_sys::STATUS_SUCCESS;
-use wdk_sys::ntddk::{IoGetCurrentProcess, PsGetCurrentProcessId, PsGetProcessStartKey, DbgPrint};
+use wdk_sys::ntddk::{IoGetCurrentProcess, PsGetCurrentProcessId, PsGetProcessStartKey};
 
-/// Pre-create callback: logs every file open and allows it.
+/// Pre-create callback: requests post-operation processing for relevant processes.
 ///
-/// Returns [`FLT_PREOP_SUCCESS_WITH_CALLBACK`] so that [`post_create`] fires.
+/// Returns the with-callback status so that post_create fires.
 pub unsafe extern "C" fn pre_create(
     _data: *mut FLT_CALLBACK_DATA,
-    flt_objects: *const FLT_RELATED_OBJECTS,
+    _flt_objects: *const FLT_RELATED_OBJECTS,
     _completion_context: *mut *mut c_void,
 ) -> FltPreopCallbackStatus {
-    // Safety: flt_objects and its file_object are guaranteed valid by FltMgr
-    // for the duration of this callback.
+    // Safety: the current-process APIs are valid for the duration of the callback.
     unsafe {
-        let file_obj = (*flt_objects).file_object;
-        if !file_obj.is_null() && !(*file_obj).FileName.Buffer.is_null() {
-            //DbgPrint(b"GalateaFlt: [CREATE] %wZ\n\0".as_ptr() as *const i8,&(*file_obj).FileName,);
+        if is_agent_process() {
+            return FLT_PREOP_SUCCESS_NO_CALLBACK;
+        }
+
+        let pid = PsGetCurrentProcessId() as usize as u64;
+        if pid <= 4 {
+            return FLT_PREOP_SUCCESS_NO_CALLBACK;
         }
     }
+
     FLT_PREOP_SUCCESS_WITH_CALLBACK
 }
 
-/// Post-create callback: logs creates that completed.
+/// Post-create callback: emits telemetry for successful file creations.
 pub unsafe extern "C" fn post_create(
     data: *mut FLT_CALLBACK_DATA,
     flt_objects: *const FLT_RELATED_OBJECTS,
@@ -37,13 +40,43 @@ pub unsafe extern "C" fn post_create(
 ) -> FltPostopCallbackStatus {
     // Safety: data and flt_objects are valid for the lifetime of this callback.
     unsafe {
-        let status = (*data).io_status.__bindgen_anon_1.Status;
-        if status != STATUS_SUCCESS {
-            let file_obj = (*flt_objects).file_object;
-            if !file_obj.is_null() && !(*file_obj).FileName.Buffer.is_null() {
-                //DbgPrint(b"GalateaFlt: [CREATE-FAIL] %wZ status=0x%08x\n\0".as_ptr() as *const i8,&(*file_obj).FileName,status,);
+        if is_agent_process() {
+            return FLT_POSTOP_FINISHED_PROCESSING;
+        }
+
+        'op_check: {
+            if !(data.is_null() || flt_objects.is_null()) {
+                let status = (*data).io_status.__bindgen_anon_1.Status;    
+                match (*data).io_status.Information as usize {
+                    FILE_CREATED | FILE_SUPERSEDED | FILE_OVERWRITTEN => {
+                        if status < 0 {break 'op_check;}
+                    
+                        let file_obj = (*flt_objects).file_object;
+                        if file_obj.is_null() || (*file_obj).FileName.Buffer.is_null() { break 'op_check; }
+
+                        let file_name = &(*file_obj).FileName;
+                        let copy_len = ((file_name.Length as usize) / size_of::<u16>()).min(259);
+                        let mut file_path = [0u16; 260];
+
+                        core::ptr::copy_nonoverlapping(file_name.Buffer, file_path.as_mut_ptr(), copy_len);
+
+                        let event = GalateaFSEvent {
+                            process_id: PsGetCurrentProcessId() as usize as u64,
+                            process_start_key: PsGetProcessStartKey(IoGetCurrentProcess()),
+                            request_id: 0,
+                            event_type: FSEventType::FileCreate,
+                            file_path,
+                            file_index: query_file_index((*flt_objects).instance, file_obj),
+                        };
+
+                        send_fs_telemetry(&raw const event);
+
+                    },
+                    _ => {}
+                }
             }
         }
+
     }
     FLT_POSTOP_FINISHED_PROCESSING
 }

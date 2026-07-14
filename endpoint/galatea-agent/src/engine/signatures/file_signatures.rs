@@ -10,6 +10,7 @@ pub enum FileFlags {
     #[default]
     None = 0,
     // General
+    FileCreateSuccess,
     FileWriteSuccess,
     WhiteListed,
     BlackListed,
