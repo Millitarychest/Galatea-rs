@@ -73,14 +73,15 @@ pub fn virtual_alloc_ex(
 
     // send telemetry in the case of a remote allocation
     if pid != remote_pid {
-        let _region_size_checked = if region_size.is_null() {
+        let region_size_checked = if region_size.is_null() {
             0
         } else {
             // SAFETY: Null pointer checked above
             unsafe { *region_size }
         };
+        events().etw_virtual_mem_allocated(None, pid, remote_pid, base_address as usize, region_size_checked, allocation_type, protect);
     }
-
+    
     let msg = "NTalloc!\n\0";
     unsafe {
         OutputDebugStringA(PCSTR(msg.as_ptr()));

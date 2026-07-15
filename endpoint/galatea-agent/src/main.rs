@@ -34,8 +34,7 @@ mod static_analyzer;
 mod utils;
 
 use crate::{
-    cache::{file_context_cache::FileContextCache, static_analyzer_cache::StaticResultCache},
-    communication::ipc::ipc_server::IpcServer,
+    cache::{file_context_cache::FileContextCache, static_analyzer_cache::StaticResultCache}, communication::{etw::etw_consumer::register_etw_consumers, ipc::ipc_server::IpcServer},
 };
 use crate::{
     communication::ipc::SendHandle,
@@ -154,6 +153,11 @@ fn main() -> error::Result<()> {
             None
         }
     };
+
+    // ETW Trace 
+    // var is only to keep lifetime for now.
+    #[expect(unused_variables)]
+    let trace = register_etw_consumers();
 
     // Setup worker threads
     let n_workers = 16; // Adjust
