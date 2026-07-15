@@ -6,6 +6,10 @@
 #[cfg(any(feature = "client_ipc", feature = "agent_ipc"))]
 extern crate alloc;
 
+// Identity stuff
+
+pub mod id;
+
 // Agent and driver
 
 /// Agent IOCTL request for current process creation events
