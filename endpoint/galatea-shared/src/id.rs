@@ -31,7 +31,7 @@ const GAPID_NAMESPACE: &str = "fc502cc9-faa2-5e5d-c30a-cb233d3a40f8";
 
 /// Uses PID, lowercase Image Name and Startime (in windows ticks) to generate a consistent traceable PID
 // Exists as PIDs are not reliably unique and StartKey seems tricky in usermode
-pub fn generate_process_id(pid: u32, image: &[u8], ticks: u64) -> GA_PID {
+pub fn generate_process_id(pid: u64, image: &[u8], ticks: u64) -> GA_PID {
     let mut hasher = Sha1::new();
 
     hasher.update(GAPID_NAMESPACE.as_bytes());

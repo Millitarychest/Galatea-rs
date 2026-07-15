@@ -106,6 +106,10 @@ impl FileContext {
         self.last_scan_summary.as_ref()
     }
 
+    pub fn flags(&self) -> &Vec<file_signatures::FileFlags> {
+        return self.matching_flags.as_ref();
+    }
+
     pub fn apply_flags(&mut self, mut flags: Vec<file_signatures::FileFlags>) {
         self.matching_flags.append(&mut flags);
     }

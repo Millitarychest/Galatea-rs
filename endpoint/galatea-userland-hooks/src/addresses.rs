@@ -64,14 +64,14 @@ impl<'a> StubAddresses<'a> {
         hm.insert(
             "NtOpenProcess",
             Addresses {
-                edr: nt_open_process as usize,
+                edr: nt_open_process as *const () as usize,
                 ntdll: zwop,
             },
         );
         hm.insert(
             "NtAllocateVirtualMemory",
             Addresses {
-                edr: virtual_alloc_ex as usize,
+                edr: virtual_alloc_ex as *const () as usize,
                 ntdll: zwavm,
             },
         );

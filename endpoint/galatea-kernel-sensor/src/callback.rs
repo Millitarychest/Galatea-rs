@@ -1,7 +1,7 @@
 use core::ptr::addr_of_mut;
 use core::sync::atomic::Ordering;
 use wdk_sys::ntddk::{
-    DbgPrint, IofCompleteRequest, KeAcquireInStackQueuedSpinLock, KeReleaseInStackQueuedSpinLock,
+    DbgPrint, IofCompleteRequest, KeAcquireInStackQueuedSpinLock, KeReleaseInStackQueuedSpinLock, PsGetProcessCreateTimeQuadPart
 };
 use wdk_sys::{
     BOOLEAN, HANDLE, IO_NO_INCREMENT, KLOCK_QUEUE_HANDLE, PCUNICODE_STRING, PEPROCESS,
@@ -19,7 +19,7 @@ use galatea_shared::GalateaEvent;
 /// `PsSetCreateProcessNotifyRoutineEx` callback — intercepts process creation events,
 /// optionally enqueues a freeze request, and notifies the agent via the inverted-call IRP.
 pub unsafe extern "C" fn process_notify_routine(
-    _process: PEPROCESS,
+    process: PEPROCESS,
     process_id: PVOID,
     create_info: *mut PS_CREATE_NOTIFY_INFO,
 ) {
@@ -89,7 +89,7 @@ pub unsafe extern "C" fn process_notify_routine(
     }
 
     // Agent IO
-    notify_agent(process_id as u64, req_id, info.ImageFileName, !fastpass);
+    notify_agent( process ,process_id as u64, req_id, info.ImageFileName, !fastpass);
 }
 
 /// `PsSetCreateThreadNotifyRoutine` callback — checks whether the newly created thread belongs
@@ -131,15 +131,29 @@ pub unsafe extern "C" fn thread_notify_routine(
 
 // Helpers
 
-unsafe fn notify_agent(pid: u64, rid: u64, image: PCUNICODE_STRING, frozen: bool) {
+unsafe fn notify_agent(process: PEPROCESS, pid: u64, rid: u64, image: PCUNICODE_STRING, frozen: bool) {
     // SAFETY: image is a valid PCUNICODE_STRING for the lifetime of this call (provided by the
     // kernel). Buffer is checked for null before slicing. PENDING_IRP and EVENT_QUEUE accesses
     // are all guarded by their respective spin locks.
+
+    let creation_ticks = PsGetProcessCreateTimeQuadPart(process) as u64;
+    let image_bytes: &[u8] = if image.is_null() || (*image).Buffer.is_null() {
+        &[]
+    } else {
+        core::slice::from_raw_parts(
+            (*image).Buffer.cast::<u8>(),
+            (*image).Length as usize,
+        )
+    };
+    
+    let ga_pid = galatea_shared::id::generate_process_id(pid, image_bytes, creation_ticks);
+
     let mut event = GalateaEvent {
         process_id: pid,
         request_id: rid,
         image_path: [0; 260],
         frozen,
+        ga_pid,
     };
 
     if !image.is_null() && !(*image).Buffer.is_null() {

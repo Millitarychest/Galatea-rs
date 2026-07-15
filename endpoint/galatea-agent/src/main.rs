@@ -34,7 +34,7 @@ mod static_analyzer;
 mod utils;
 
 use crate::{
-    cache::{file_context_cache::FileContextCache, static_analyzer_cache::StaticResultCache}, communication::{etw::etw_consumer::register_etw_consumers, ipc::ipc_server::IpcServer},
+    cache::{file_context_cache::{FileContextCache, fsc_canonicalize_path}, process_context_cache::{ProcessContextCache, ProcessContextUpdate}, static_analyzer_cache::StaticResultCache}, communication::{etw::etw_consumer::register_etw_consumers, ipc::ipc_server::IpcServer},
 };
 use crate::{
     communication::ipc::SendHandle,
@@ -47,6 +47,7 @@ static STATIC_RESULT_CACHE: OnceLock<StaticResultCache> = OnceLock::new();
 
 //Context Caches
 static FILE_CONTEXT_CACHE: OnceLock<FileContextCache> = OnceLock::new();
+static PROC_CONTEXT_CACHE: OnceLock<ProcessContextCache> = OnceLock::new();
 
 fn main() -> error::Result<()> {
     // Setup file logging
@@ -237,8 +238,9 @@ fn main() -> error::Result<()> {
         mimic_error!("Failed to register with server: {}", e);
     }
 
-    mimic_log!("Entering kernel event wait loop.");
+    let context_cache = PROC_CONTEXT_CACHE.get_or_init(ProcessContextCache::new);
 
+    mimic_log!("Entering kernel event wait loop.");
     loop {
         let mut event: GalateaEvent = unsafe { std::mem::zeroed() };
         let mut bytes_returned: u32 = 0;
@@ -267,6 +269,21 @@ fn main() -> error::Result<()> {
                     continue;
                 }
 
+                let raw_path = String::from_utf16_lossy(&event.image_path)
+                    .trim_matches(char::from(0))
+                    .to_string();
+
+                // insert the attempt into context
+                let proc_content_update = ProcessContextUpdate {
+                    pid: Some(event.process_id),
+                    process_start_key: None,
+                    behavioural_score: None,
+                    image_path: Some(fsc_canonicalize_path(&raw_path)),
+                    image_context_key: None,
+                };
+                context_cache.write_telemetry(event.ga_pid, proc_content_update);
+
+                // move to analysis pipeline
                 let worker_handle = safe_handle.clone();
                 let worker_db = db_pool.clone();
                 let worker_sig = sig_engine.clone();

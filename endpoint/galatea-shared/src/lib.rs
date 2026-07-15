@@ -22,6 +22,8 @@ pub const IOCTL_REGISTER_AGENT: u32 = 0x80002008;
 /// Struct used to send a process creation event via IOCTL
 #[repr(C)]
 pub struct GalateaEvent {
+    /// Galatea GUID
+    pub ga_pid : id::GA_PID,
     /// Process ID
     pub process_id: u64,
     /// Request ID used for tracking of verdicts in kernel mode
