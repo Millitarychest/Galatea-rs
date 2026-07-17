@@ -18,8 +18,9 @@ pub use packers::PackerSignatureEngine;
 mod ml;
 pub use ml::MlEngine;
 
+use crate::cache::file_context_cache::{FileContextCache, FileContextKey};
 use crate::cache::static_analyzer_cache::{
-    CompletedScan, ScanOutcome, StaticResultCache, WaitResult,
+    CompletedScan, ScanOutcome, ScanSummary, StaticResultCache, WaitResult,
 };
 use crate::engine::correlation::broadcast_static_process_verdict;
 use crate::probes::file_identity::get_file_index;
@@ -31,7 +32,7 @@ use crate::{
     static_analyzer::authenticode::verify_signature,
     utils::hashing::calc_md5,
 };
-use crate::{STATIC_RESULT_CACHE, communication::ipc, utils};
+use crate::{FILE_CONTEXT_CACHE, STATIC_RESULT_CACHE, communication::ipc, utils};
 
 pub struct AnalysisResult {
     pub event: GalateaEvent,
@@ -249,8 +250,7 @@ pub fn analyze_event(
             }
         }
 
-        // Promote result into cache and wake any waiters
-        scan_guard.complete(CompletedScan {
+        let completed_scan = CompletedScan {
             details: DetectionDetails {
                 threat_score: ctx.threat_score,
                 md5_hash: ctx.md5_hash.clone(),
@@ -262,7 +262,14 @@ pub fn analyze_event(
             mod_time: last_write,
             file_size,
             file_index: get_file_index(&image_path),
-        });
+        };
+
+        let file_cache = FILE_CONTEXT_CACHE.get_or_init(FileContextCache::new);
+        let scan_key = FileContextKey::from_identity(&image_path, completed_scan.file_index);
+        let _ = file_cache.write_scan_summary(scan_key, ScanSummary::from(&completed_scan));
+
+        // Promote result into the static-result cache and wake any waiters.
+        scan_guard.complete(completed_scan);
 
         // Inject hook DLL if process was allowed
         if ctx.verdict_allow {

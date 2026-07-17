@@ -2,10 +2,14 @@ use std::sync::{Arc, RwLock};
 
 use galatea_shared::id::GA_PID;
 use mimic_core::{mimic_error, mimic_log};
+use moka::policy::EvictionPolicy;
 
 use crate::cache::file_context_cache::{FileContextKey, fsc_canonicalize_path};
 
 const PROCESS_CONTEXT_CACHE_CAPACITY: u64 = 10_000;
+const HIGH_PRIORITY_PROCESS_CONTEXT_CACHE_CAPACITY: u64 = 2_000;
+const NORMAL_PROCESS_CONTEXT_CACHE_CAPACITY: u64 =
+    PROCESS_CONTEXT_CACHE_CAPACITY - HIGH_PRIORITY_PROCESS_CONTEXT_CACHE_CAPACITY;
 
 /// Partial process telemetry update data.
 #[derive(Debug, Clone, Default)]
@@ -91,26 +95,39 @@ impl ProcessContext {
             self.image_context_key = Some(image_context_key);
         }
     }
+
+    fn is_high_priority(&self) -> bool {
+        self.behavioural_score.is_some_and(|score| score > 0)
+    }
 }
 
 /// Thread-safe process context cache for telemetry correlation.
+///
+/// Contexts with a non-zero behavioural score are retained in a dedicated,
+/// bounded tier so low-signal process churn cannot evict them from the normal tier.
 pub struct ProcessContextCache {
-    entries: moka::sync::Cache<GA_PID, Arc<RwLock<ProcessContext>>>,
+    normal_entries: moka::sync::Cache<GA_PID, Arc<RwLock<ProcessContext>>>,
+    high_priority_entries: moka::sync::Cache<GA_PID, Arc<RwLock<ProcessContext>>>,
 }
 
 impl ProcessContextCache {
     /// Creates a new process context cache.
     pub fn new() -> Self {
         Self {
-            entries: moka::sync::Cache::builder()
-                .max_capacity(PROCESS_CONTEXT_CACHE_CAPACITY)
+            normal_entries: moka::sync::Cache::builder()
+                .max_capacity(NORMAL_PROCESS_CONTEXT_CACHE_CAPACITY)
+                .eviction_policy(EvictionPolicy::lru())
+                .build(),
+            high_priority_entries: moka::sync::Cache::builder()
+                .max_capacity(HIGH_PRIORITY_PROCESS_CONTEXT_CACHE_CAPACITY)
+                .eviction_policy(EvictionPolicy::lru())
                 .build(),
         }
     }
 
     /// Returns a cloned snapshot of the context for a Galatea process identity.
     pub fn get(&self, guid: &GA_PID) -> Option<ProcessContext> {
-        let entry = self.entries.get(guid)?;
+        let entry = self.context_entry(guid)?;
         match entry.read() {
             Ok(context) => Some(context.clone()),
             Err(e) => {
@@ -128,13 +145,18 @@ impl ProcessContextCache {
     ) -> Option<ProcessContext> {
         let p = update.image_path.clone();
         let a = self.update_context(guid, |context| context.apply_update(update));
-        mimic_log!("[PROCESS_CONTEXT] Inserted something: {:?} -> {:?}",guid, p );
+        mimic_log!(
+            "[PROCESS_CONTEXT] Inserted something: {:?} -> {:?}",
+            guid,
+            p
+        );
         a
     }
 
     /// Invalidates a context entry.
     pub fn invalidate(&self, guid: &GA_PID) {
-        self.entries.invalidate(guid);
+        self.high_priority_entries.invalidate(guid);
+        self.normal_entries.invalidate(guid);
     }
 
     fn update_context(
@@ -142,17 +164,26 @@ impl ProcessContextCache {
         guid: GA_PID,
         update: impl FnOnce(&mut ProcessContext),
     ) -> Option<ProcessContext> {
-        let entry = self.entries.get_with(guid, || {
-            Arc::new(RwLock::new(ProcessContext {
-                guid: Some(guid),
-                ..ProcessContext::default()
-            }))
-        });
+        let entry = match self.high_priority_entries.get(&guid) {
+            Some(entry) => entry,
+            None => {
+                let normal_entry = self.normal_entries.get_with(guid, || {
+                    Arc::new(RwLock::new(ProcessContext {
+                        guid: Some(guid),
+                        ..ProcessContext::default()
+                    }))
+                });
+                self.high_priority_entries
+                    .get(&guid)
+                    .unwrap_or(normal_entry)
+            }
+        };
 
-        let context = match entry.write() {
+        let (context, is_high_priority) = match entry.write() {
             Ok(mut context) => {
                 update(&mut context);
-                context.clone()
+                let is_high_priority = context.is_high_priority();
+                (context.clone(), is_high_priority)
             }
             Err(e) => {
                 mimic_error!("[PROCESS_CONTEXT] Failed to write poisoned context: {e}");
@@ -160,7 +191,18 @@ impl ProcessContextCache {
             }
         };
 
+        if is_high_priority && !self.high_priority_entries.contains_key(&guid) {
+            self.high_priority_entries.insert(guid, entry);
+            self.normal_entries.invalidate(&guid);
+        }
+
         Some(context)
+    }
+
+    fn context_entry(&self, guid: &GA_PID) -> Option<Arc<RwLock<ProcessContext>>> {
+        self.high_priority_entries
+            .get(guid)
+            .or_else(|| self.normal_entries.get(guid))
     }
 }
 
@@ -169,3 +211,4 @@ impl Default for ProcessContextCache {
         Self::new()
     }
 }
+
