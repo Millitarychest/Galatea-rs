@@ -7,6 +7,7 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
+galatea-shared = { path = "../galatea-shared" }
 win_etw_macros = "0.1.11"
 win_etw_provider = "0.1.14"
 windows = { workspace = true, features = [

@@ -1,18 +1,19 @@
 use std::{arch::asm, ffi::c_void};
 
-use windows::{
-    Win32::{
-        Foundation::HANDLE,
-        System::{
-            Diagnostics::Debug::OutputDebugStringA,
-            Threading::{GetCurrentProcessId, GetProcessId},
-            WindowsProgramming::CLIENT_ID,
-        },
+use windows::Win32::{
+    Foundation::{HANDLE},
+    System::{
+        Threading::{GetCurrentProcessId, GetProcessId},
+        WindowsProgramming::CLIENT_ID,
     },
-    core::PCSTR,
 };
 
-use crate::{etw::events, ssn::SYSCALL_NUMBER};
+use crate::{etw::events, identity::current_ga_pid, ssn::SYSCALL_NUMBER};
+
+
+
+
+
 
 /// Injected stub for ZwOpenProcess and NtOpenProcess
 pub fn nt_open_process(
@@ -28,16 +29,15 @@ pub fn nt_open_process(
         // Currently only interested in foreign process handles..
         if target_pid != pid {
             println!("PID: {pid}, target: {target_pid}");
+
+            if let Some(ga_pid) = current_ga_pid() {
+                events().etw_process_handle_opened(None, ga_pid.as_bytes(), pid, target_pid);
+            }
         }
-        
-        events().etw_process_handle_opened(None, pid, target_pid);
-
     }
 
-    let msg = "Open Process Hook!\n\0";
-    unsafe {
-        OutputDebugStringA(PCSTR(msg.as_ptr()));
-    }
+    //let msg = "Open Process Hook!\n\0";
+    //unsafe {OutputDebugStringA(PCSTR(msg.as_ptr()));}
 
     let ssn = *SYSCALL_NUMBER
         .get("ZwOpenProcess")
@@ -79,13 +79,22 @@ pub fn virtual_alloc_ex(
             // SAFETY: Null pointer checked above
             unsafe { *region_size }
         };
-        events().etw_virtual_mem_allocated(None, pid, remote_pid, base_address as usize, region_size_checked, allocation_type, protect);
+        if let Some(ga_pid) = current_ga_pid() {
+            events().etw_virtual_mem_allocated(
+                None,
+                ga_pid.as_bytes(),
+                pid,
+                remote_pid,
+                base_address as usize,
+                region_size_checked,
+                allocation_type,
+                protect,
+            );
+        }
     }
-    
-    let msg = "NTalloc!\n\0";
-    unsafe {
-        OutputDebugStringA(PCSTR(msg.as_ptr()));
-    }
+
+    //let msg = "NTalloc!\n\0";
+    //unsafe {OutputDebugStringA(PCSTR(msg.as_ptr()));}
 
     // proceed with the syscall
     let ssn = *SYSCALL_NUMBER

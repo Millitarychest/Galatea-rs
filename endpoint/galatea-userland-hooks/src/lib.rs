@@ -9,10 +9,12 @@ use windows::Win32::{
 };
 
 mod addresses;
+mod etw;
 mod ssn;
 mod stubs;
 mod threads;
-mod etw;
+mod identity;
+
 use crate::{
     addresses::StubAddresses,
     ssn::SYSCALL_NUMBER,
@@ -24,9 +26,10 @@ unsafe extern "system" fn init_hooks(_: *mut c_void) -> u32 {
 
     // create hooks
     let stub_addresses = StubAddresses::new();
+    let _ = identity::current_ga_pid();
     patch(&stub_addresses);
     resume_all_threads(suspended_handels);
-    
+
     return STATUS_SUCCESS.0 as _;
 }
 

@@ -4,7 +4,7 @@ use galatea_shared::id::GA_PID;
 use mimic_core::{mimic_error, mimic_log};
 use moka::policy::EvictionPolicy;
 
-use crate::cache::file_context_cache::{FileContextKey, fsc_canonicalize_path};
+use crate::{cache::file_context_cache::{FileContextKey, fsc_canonicalize_path}, engine::signatures::process_signatures};
 
 const PROCESS_CONTEXT_CACHE_CAPACITY: u64 = 10_000;
 const HIGH_PRIORITY_PROCESS_CONTEXT_CACHE_CAPACITY: u64 = 2_000;
@@ -24,6 +24,8 @@ pub struct ProcessContextUpdate {
     pub image_path: Option<String>,
     /// Context key for the process image file.
     pub image_context_key: Option<FileContextKey>,
+    /// Flags matched during process runtime
+    pub matching_flags: Option<Vec<process_signatures::ProcessFlags>>
 }
 
 /// Contextual information about a process used during correlation.
@@ -41,6 +43,8 @@ pub struct ProcessContext {
     image_path: Option<String>,
     /// Context key for the process image file.
     image_context_key: Option<FileContextKey>,
+    /// Flags matched during process runtime
+    matching_flags: Vec<process_signatures::ProcessFlags>
 }
 
 impl ProcessContext {
@@ -74,6 +78,16 @@ impl ProcessContext {
         self.image_context_key.as_ref()
     }
 
+    /// Returns the accumulated correlation flags.
+    pub fn flags(&self) -> &[process_signatures::ProcessFlags] {
+        &self.matching_flags
+    }
+
+    /// Adds correlation flags to this context.
+    pub fn apply_flags(&mut self, mut flags: Vec<process_signatures::ProcessFlags>) {
+        self.matching_flags.append(&mut flags);
+    }
+
     fn apply_update(&mut self, update: ProcessContextUpdate) {
         if let Some(pid) = update.pid {
             self.pid = Some(pid);
@@ -93,6 +107,10 @@ impl ProcessContext {
 
         if let Some(image_context_key) = update.image_context_key {
             self.image_context_key = Some(image_context_key);
+        }
+        
+        if let Some(flags) = update.matching_flags {
+            self.apply_flags(flags);
         }
     }
 
@@ -168,6 +186,7 @@ impl ProcessContextCache {
             Some(entry) => entry,
             None => {
                 let normal_entry = self.normal_entries.get_with(guid, || {
+                    mimic_log!("missed cache");
                     Arc::new(RwLock::new(ProcessContext {
                         guid: Some(guid),
                         ..ProcessContext::default()

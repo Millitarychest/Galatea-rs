@@ -1713,6 +1713,7 @@ dependencies = [
 name = "galatea-userland-hooks"
 version = "0.1.0"
 dependencies = [
+ "galatea-shared",
  "win_etw_macros",
  "win_etw_provider",
  "windows 0.62.2",

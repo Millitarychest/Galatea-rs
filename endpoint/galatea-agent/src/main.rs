@@ -280,6 +280,7 @@ fn main() -> error::Result<()> {
                     behavioural_score: None,
                     image_path: Some(fsc_canonicalize_path(&raw_path)),
                     image_context_key: None,
+                    matching_flags: None,
                 };
                 context_cache.write_telemetry(event.ga_pid, proc_content_update);
 
