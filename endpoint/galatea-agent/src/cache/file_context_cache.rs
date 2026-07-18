@@ -157,19 +157,13 @@ impl FileContext {
     }
 
     fn is_high_priority(&self) -> bool {
-        let has_temp_location = self
-            .matching_flags
-            .contains(&file_signatures::FileFlags::InTempLocation);
-        let renamed_to_executable = self
-            .matching_flags
-            .contains(&file_signatures::FileFlags::RenamedToExecutable);
+        let high_risk_combination = file_signatures::get_high_value_flag_combinations().iter().any(|combination|{
+            combination.iter().all(|flag| {
+                self.matching_flags.contains(flag)
+            })
+        });
         let high_risk_flag = self.matching_flags.iter().any(|flag| {
-            matches!(
-                flag,
-                file_signatures::FileFlags::BlackListed
-                    | file_signatures::FileFlags::StaticScanMalicious
-                    | file_signatures::FileFlags::StaticScanSuspicious
-            )
+            file_signatures::get_high_value_flags().contains(flag)
         });
         let high_risk_scan = self.last_scan_summary.as_ref().is_some_and(|summary| {
             matches!(
@@ -178,7 +172,7 @@ impl FileContext {
             )
         });
 
-        high_risk_flag || high_risk_scan || (has_temp_location && renamed_to_executable)
+        high_risk_flag || high_risk_scan || high_risk_combination
     }
 }
 
