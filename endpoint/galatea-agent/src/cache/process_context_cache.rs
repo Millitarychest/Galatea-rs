@@ -162,13 +162,7 @@ impl ProcessContextCache {
         update: ProcessContextUpdate,
     ) -> Option<ProcessContext> {
         let p = update.image_path.clone();
-        let a = self.update_context(guid, |context| context.apply_update(update));
-        mimic_log!(
-            "[PROCESS_CONTEXT] Inserted something: {:?} -> {:?}",
-            guid,
-            p
-        );
-        a
+        self.update_context(guid, |context| context.apply_update(update))
     }
 
     /// Invalidates a context entry.
@@ -186,7 +180,6 @@ impl ProcessContextCache {
             Some(entry) => entry,
             None => {
                 let normal_entry = self.normal_entries.get_with(guid, || {
-                    mimic_log!("missed cache");
                     Arc::new(RwLock::new(ProcessContext {
                         guid: Some(guid),
                         ..ProcessContext::default()
