@@ -10,6 +10,17 @@ use windows::Win32::{
 
 use crate::{etw::events, identity::current_ga_pid, ssn::SYSCALL_NUMBER};
 
+fn ga_pid_parts(ga_pid: &galatea_shared::id::GA_PID) -> (u64, u64) {
+    let bytes = ga_pid.as_bytes();
+    let mut lo_bytes = [0u8; 8];
+    let mut hi_bytes = [0u8; 8];
+
+    lo_bytes.copy_from_slice(&bytes[..8]);
+    hi_bytes.copy_from_slice(&bytes[8..]);
+
+    (u64::from_le_bytes(lo_bytes), u64::from_le_bytes(hi_bytes))
+}
+
 
 
 
@@ -31,7 +42,9 @@ pub fn nt_open_process(
             println!("PID: {pid}, target: {target_pid}");
 
             if let Some(ga_pid) = current_ga_pid() {
-                events().etw_process_handle_opened(None, ga_pid.as_bytes(), pid, target_pid);
+                let (ga_pid_lo, ga_pid_hi) = ga_pid_parts(&ga_pid);
+
+                events().etw_process_handle_opened(None, ga_pid_lo, ga_pid_hi, pid, target_pid);
             }
         }
     }
@@ -80,9 +93,12 @@ pub fn virtual_alloc_ex(
             unsafe { *region_size }
         };
         if let Some(ga_pid) = current_ga_pid() {
+            let (ga_pid_lo, ga_pid_hi) = ga_pid_parts(&ga_pid);
+
             events().etw_virtual_mem_allocated(
                 None,
-                ga_pid.as_bytes(),
+                ga_pid_lo,
+                ga_pid_hi,
                 pid,
                 remote_pid,
                 base_address as usize,

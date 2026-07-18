@@ -16,6 +16,28 @@ pub fn register_etw_consumers() -> UserTrace{
     return UserTrace::new().enable(hook_provider).start_and_process().unwrap();
 }
 
+fn parse_ga_pid(parser: &Parser<'_, '_>) -> Option<GA_PID> {
+    let ga_pid_lo: u64 = match parser.try_parse("ga_pid_lo") {
+        Ok(value) => value,
+        Err(error) => {
+            mimic_error!("[ETW] Failed to parse ga_pid_lo: {error:?}");
+            return None;
+        }
+    };
+    let ga_pid_hi: u64 = match parser.try_parse("ga_pid_hi") {
+        Ok(value) => value,
+        Err(error) => {
+            mimic_error!("[ETW] Failed to parse ga_pid_hi: {error:?}");
+            return None;
+        }
+    };
+
+    let mut bytes = [0u8; 16];
+    bytes[..8].copy_from_slice(&ga_pid_lo.to_le_bytes());
+    bytes[8..].copy_from_slice(&ga_pid_hi.to_le_bytes());
+    Some(GA_PID::from_bytes(bytes))
+}
+
 fn etw_hook_callback(record: &EventRecord, schema_locator: &SchemaLocator) {
     match schema_locator.event_schema(record) {
         Ok(schema) => {
@@ -25,13 +47,8 @@ fn etw_hook_callback(record: &EventRecord, schema_locator: &SchemaLocator) {
                 let actor_pid: u32 = parser.try_parse("actor_pid").unwrap_or_default();
                 let target_pid: u32 = parser.try_parse("target_pid").unwrap_or_default();
 
-                let actor_ga_pid_bytes: Vec<u8> = parser.try_parse("ga_pid").unwrap_or_default();
-                let actor_ga_pid = match actor_ga_pid_bytes.try_into() {
-                    Ok(bytes) => GA_PID::from_bytes(bytes),
-                    Err(_) => {
-                        mimic_error!("[ETW] ga_pid had an invalid length");
-                        return;
-                    }
+                let Some(actor_ga_pid) = parse_ga_pid(&parser) else {
+                    return;
                 };
 
                 let update = ProcessContextUpdate { 
@@ -57,13 +74,8 @@ fn etw_hook_callback(record: &EventRecord, schema_locator: &SchemaLocator) {
                 let actor_pid: u32 = parser.try_parse("actor_pid").unwrap_or_default();
                 let target_pid: u32 = parser.try_parse("target_pid").unwrap_or_default();
 
-                let actor_ga_pid_bytes: Vec<u8> = parser.try_parse("ga_pid").unwrap_or_default();
-                let actor_ga_pid = match actor_ga_pid_bytes.try_into() {
-                    Ok(bytes) => GA_PID::from_bytes(bytes),
-                    Err(_) => {
-                        mimic_error!("[ETW] ga_pid had an invalid length");
-                        return;
-                    }
+                let Some(actor_ga_pid) = parse_ga_pid(&parser) else {
+                    return;
                 };
 
 
