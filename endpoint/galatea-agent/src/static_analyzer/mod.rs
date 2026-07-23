@@ -2,7 +2,7 @@ use std::fs;
 use std::sync::{Arc, mpsc::Sender};
 use std::time::SystemTime;
 
-use galatea_shared::GalateaEvent;
+use galatea_shared::GalateaProcEvent;
 use galatea_shared::ipc::{
     AuthenticodeInfo, DetectionDetails, HeuristicResults, IpcMessage, MlPrediction, SignatureMatch,
 };
@@ -35,7 +35,7 @@ use crate::{
 use crate::{FILE_CONTEXT_CACHE, STATIC_RESULT_CACHE, communication::ipc, utils};
 
 pub struct AnalysisResult {
-    pub event: GalateaEvent,
+    pub event: GalateaProcEvent,
     pub threat_score: i32,
     pub md5_hash: Option<String>,
     pub signature_match: Option<SignatureMatch>,
@@ -48,7 +48,7 @@ pub struct AnalysisResult {
 }
 
 impl AnalysisResult {
-    pub fn new(event: GalateaEvent) -> Self {
+    pub fn new(event: GalateaProcEvent) -> Self {
         Self {
             event,
             threat_score: 0,
@@ -72,7 +72,7 @@ enum StageOutcome {
 }
 
 pub fn analyze_ks_event(
-    event: GalateaEvent,
+    event: GalateaProcEvent,
     driver: ipc::SendHandle,
     db_pool: DbPool,
     pack_engine: Arc<PackerSignatureEngine>,
@@ -391,7 +391,7 @@ pub fn analyze_ks_event(
 
 /// Builds an `AnalysisResult` from cached `DetectionDetails` without re-scanning.
 fn build_result_from_details(
-    event: GalateaEvent,
+    event: GalateaProcEvent,
     details: DetectionDetails,
     allow: bool,
     size: u64,

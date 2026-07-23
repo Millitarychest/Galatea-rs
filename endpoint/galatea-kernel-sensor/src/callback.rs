@@ -1,4 +1,4 @@
-use core::ptr::addr_of_mut;
+use core::ptr::{addr_of_mut, null};
 use core::sync::atomic::Ordering;
 use wdk_sys::ntddk::{
     DbgPrint, IofCompleteRequest, KeAcquireInStackQueuedSpinLock, KeReleaseInStackQueuedSpinLock, PsGetProcessCreateTimeQuadPart
@@ -14,7 +14,7 @@ use crate::{
     EVENT_QUEUE, PENDING_IRP, PENDING_IRP_LOCK, QUEUE_LOCK, REQUEST_ID_COUNTER, TARGET_LOCK,
     TARGET_PIDS, apc,
 };
-use galatea_shared::GalateaEvent;
+use galatea_shared::GalateaProcEvent;
 
 /// `PsSetCreateProcessNotifyRoutineEx` callback — intercepts process creation events,
 /// optionally enqueues a freeze request, and notifies the agent via the inverted-call IRP.
@@ -32,6 +32,8 @@ pub unsafe extern "C" fn process_notify_routine(
                 b"Galatea: [EXIT]  PID: %p\0".as_ptr() as *const i8,
                 process_id,
             );
+            let req_id = REQUEST_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
+            notify_agent( process ,process_id as u64, req_id, null(), false, false);
             return;
         }
     };
@@ -89,7 +91,7 @@ pub unsafe extern "C" fn process_notify_routine(
     }
 
     // Agent IO
-    notify_agent( process ,process_id as u64, req_id, info.ImageFileName, !fastpass);
+    notify_agent( process ,process_id as u64, req_id, info.ImageFileName, !fastpass, false);
 }
 
 /// `PsSetCreateThreadNotifyRoutine` callback — checks whether the newly created thread belongs
@@ -131,7 +133,7 @@ pub unsafe extern "C" fn thread_notify_routine(
 
 // Helpers
 
-unsafe fn notify_agent(process: PEPROCESS, pid: u64, rid: u64, image: PCUNICODE_STRING, frozen: bool) {
+unsafe fn notify_agent(process: PEPROCESS, pid: u64, rid: u64, image: PCUNICODE_STRING, frozen: bool, exiting: bool) {
     // SAFETY: image is a valid PCUNICODE_STRING for the lifetime of this call (provided by the
     // kernel). Buffer is checked for null before slicing. PENDING_IRP and EVENT_QUEUE accesses
     // are all guarded by their respective spin locks.
@@ -148,12 +150,13 @@ unsafe fn notify_agent(process: PEPROCESS, pid: u64, rid: u64, image: PCUNICODE_
     
     let ga_pid = galatea_shared::id::generate_process_id(pid, image_bytes, creation_ticks);
 
-    let mut event = GalateaEvent {
+    let mut event = GalateaProcEvent {
         process_id: pid,
         request_id: rid,
         image_path: [0; 260],
         frozen,
         ga_pid,
+        exiting: false,
     };
 
     if !image.is_null() && !(*image).Buffer.is_null() {
@@ -175,11 +178,11 @@ unsafe fn notify_agent(process: PEPROCESS, pid: u64, rid: u64, image: PCUNICODE_
                 let stack = io_get_current_irp_stack_location(irp);
                 let output_len = (*stack).Parameters.DeviceIoControl.OutputBufferLength as usize;
 
-                if output_len >= core::mem::size_of::<GalateaEvent>() {
-                    let buffer = (*irp).AssociatedIrp.SystemBuffer as *mut GalateaEvent;
+                if output_len >= core::mem::size_of::<GalateaProcEvent>() {
+                    let buffer = (*irp).AssociatedIrp.SystemBuffer as *mut GalateaProcEvent;
                     *buffer = event;
 
-                    (*irp).IoStatus.Information = core::mem::size_of::<GalateaEvent>() as u64;
+                    (*irp).IoStatus.Information = core::mem::size_of::<GalateaProcEvent>() as u64;
                     (*irp).IoStatus.__bindgen_anon_1.Status = STATUS_SUCCESS;
                 } else {
                     (*irp).IoStatus.Information = 0;

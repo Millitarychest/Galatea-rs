@@ -30,7 +30,7 @@ pub struct ProcessContextUpdate {
 
 /// Contextual information about a process used during correlation.
 #[derive(Debug, Clone, Default)]
-pub struct ProcessContext {
+pub struct ProcessContext { // TODO: Add something for process hirachy (PPID etc.)
     /// Windows-assigned process ID.
     pid: Option<u64>,
     /// Windows process start key.
@@ -167,6 +167,7 @@ impl ProcessContextCache {
 
     /// Invalidates a context entry.
     pub fn invalidate(&self, guid: &GA_PID) {
+        // TODO: need to make sure parent processes accumulate tthe danger their children produce so correlation actually has a chance
         self.high_priority_entries.invalidate(guid);
         self.normal_entries.invalidate(guid);
     }

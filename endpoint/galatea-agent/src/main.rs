@@ -19,7 +19,7 @@ use windows::{
     core::w,
 };
 
-use galatea_shared::{GalateaEvent, IOCTL_GET_EVENT};
+use galatea_shared::{GalateaProcEvent, IOCTL_GET_EVENT};
 use mimic_core::{error, mimic_bail, mimic_error, mimic_log, mimic_success, privilege};
 
 mod cache;
@@ -291,7 +291,7 @@ fn main() -> error::Result<()> {
 
     mimic_log!("Entering kernel event wait loop.");
     loop {
-        let mut event: GalateaEvent = unsafe { std::mem::zeroed() };
+        let mut event: GalateaProcEvent = unsafe { std::mem::zeroed() };
         let mut bytes_returned: u32 = 0;
 
         //-----------------------------
@@ -304,7 +304,7 @@ fn main() -> error::Result<()> {
                 None,
                 0,
                 Some(&mut event as *mut _ as *mut c_void),
-                size_of::<GalateaEvent>() as u32,
+                size_of::<GalateaProcEvent>() as u32,
                 Some(&mut bytes_returned),
                 None,
             )
@@ -312,52 +312,65 @@ fn main() -> error::Result<()> {
 
         match result {
             Ok(_) => {
-                if bytes_returned < size_of::<GalateaEvent>() as u32 {
+                if bytes_returned < size_of::<GalateaProcEvent>() as u32 {
                     mimic_error!(
                         "IOCTL_GET_EVENT returned short event buffer: {} bytes (expected {}). Continuing.",
                         bytes_returned,
-                        size_of::<GalateaEvent>()
+                        size_of::<GalateaProcEvent>()
                     );
                     continue;
                 }
-
-                let raw_path = String::from_utf16_lossy(&event.image_path)
+                if !&event.exiting {
+                    //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                    // Process creation
+                    //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                    let raw_path = String::from_utf16_lossy(&event.image_path)
                     .trim_matches(char::from(0))
                     .to_string();
 
-                //-----------------------------
-                // Insert the attempt into the Process context
-                //-----------------------------
-                let proc_content_update = ProcessContextUpdate {
-                    pid: Some(event.process_id),
-                    process_start_key: None,
-                    behavioural_score: None,
-                    image_path: Some(fsc_canonicalize_path(&raw_path)),
-                    //image_context_key: None,
-                    matching_flags: None,
-                };
-                context_cache.write_telemetry(event.ga_pid, proc_content_update);
+                    //-----------------------------
+                    // Insert the attempt into the Process context
+                    //-----------------------------
+                    let proc_content_update = ProcessContextUpdate {
+                        pid: Some(event.process_id),
+                        process_start_key: None,
+                        behavioural_score: None,
+                        image_path: Some(fsc_canonicalize_path(&raw_path)),
+                        //image_context_key: None,
+                        matching_flags: None,
+                    };
+                    context_cache.write_telemetry(event.ga_pid, proc_content_update);
 
-                //-----------------------------
-                // Trigger static analysis
-                //-----------------------------
-                let worker_handle = safe_handle.clone();
-                let worker_db = db_pool.clone();
-                let worker_sig = sig_engine.clone();
-                let worker_ml = ml_engine.clone();
-                let worker_ipc = ipc_sender.clone();
-                let worker_event = event;
+                    //-----------------------------
+                    // Trigger static analysis
+                    //-----------------------------
+                    let worker_handle = safe_handle.clone();
+                    let worker_db = db_pool.clone();
+                    let worker_sig = sig_engine.clone();
+                    let worker_ml = ml_engine.clone();
+                    let worker_ipc = ipc_sender.clone();
+                    let worker_event = event;
 
-                worker_pool.execute(move || {
-                    static_analyzer::analyze_ks_event(
-                        worker_event,
-                        worker_handle,
-                        worker_db,
-                        worker_sig,
-                        worker_ml,
-                        worker_ipc,
-                    );
-                });
+                    worker_pool.execute(move || {
+                        static_analyzer::analyze_ks_event(
+                            worker_event,
+                            worker_handle,
+                            worker_db,
+                            worker_sig,
+                            worker_ml,
+                            worker_ipc,
+                        );
+                    });
+                }
+                else {
+                    //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                    // Process destruction
+                    //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                    
+                    // remove killed processes from local cache
+                    context_cache.invalidate(&event.ga_pid);
+                }
+                
             }
             Err(e) => {
                 mimic_error!("IOCTL_GET_EVENT DeviceIoControl failed: {:?}", e);
