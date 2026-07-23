@@ -177,8 +177,9 @@ impl FileContext {
     }
 }
 
+/// File Cache Index
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct FileContextId(u64);
+pub(super) struct FileContextId(u64);
 
 #[derive(Default)]
 struct AliasIndexes {

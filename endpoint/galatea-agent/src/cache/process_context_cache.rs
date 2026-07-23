@@ -22,8 +22,8 @@ pub struct ProcessContextUpdate {
     pub behavioural_score: Option<u64>,
     /// Path of the process image.
     pub image_path: Option<String>,
-    /// Context key for the process image file.
-    pub image_context_key: Option<FileContextKey>,
+    // Context key for the process image file.
+    //pub image_context_key: Option<FileContextKey>,
     /// Flags matched during process runtime
     pub matching_flags: Option<Vec<process_signatures::ProcessFlags>>
 }
@@ -41,8 +41,8 @@ pub struct ProcessContext {
     behavioural_score: Option<u64>,
     /// Path of the process image.
     image_path: Option<String>,
-    /// Context key for the process image file.
-    image_context_key: Option<FileContextKey>,
+    // Context key for the process image file.
+    //image_context_key: Option<FileContextKey>,
     /// Flags matched during process runtime
     matching_flags: Vec<process_signatures::ProcessFlags>
 }
@@ -73,10 +73,10 @@ impl ProcessContext {
         self.image_path.as_deref()
     }
 
-    /// Returns the context key for the process image if known.
-    pub fn image_context_key(&self) -> Option<&FileContextKey> {
-        self.image_context_key.as_ref()
-    }
+    // Returns the context key for the process image if known.
+    //pub fn image_context_key(&self) -> Option<&FileContextKey> {
+    //    self.image_context_key.as_ref()
+    //}
 
     /// Returns the accumulated correlation flags.
     pub fn flags(&self) -> &[process_signatures::ProcessFlags] {
@@ -105,9 +105,9 @@ impl ProcessContext {
             self.image_path = Some(fsc_canonicalize_path(&image_path));
         }
 
-        if let Some(image_context_key) = update.image_context_key {
-            self.image_context_key = Some(image_context_key);
-        }
+        //if let Some(image_context_key) = update.image_context_key {
+        //    self.image_context_key = Some(image_context_key);
+        //}
         
         if let Some(flags) = update.matching_flags {
             self.apply_flags(flags);

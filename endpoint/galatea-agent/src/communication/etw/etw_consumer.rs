@@ -56,7 +56,7 @@ fn etw_hook_callback(record: &EventRecord, schema_locator: &SchemaLocator) {
                     process_start_key: None, 
                     behavioural_score: None, 
                     image_path: None, 
-                    image_context_key: None, 
+                    // image_context_key: None, 
                     matching_flags: Some(vec![process_signatures::ProcessFlags::OpenedRemoteProcess]) 
                 };
 
@@ -85,7 +85,7 @@ fn etw_hook_callback(record: &EventRecord, schema_locator: &SchemaLocator) {
                     process_start_key: None, 
                     behavioural_score: None, 
                     image_path: None, 
-                    image_context_key: None, 
+                    // image_context_key: None, 
                     matching_flags: Some(vec![process_signatures::ProcessFlags::AllocedVMemInRemoteProcess]) 
                 };
 
