@@ -156,6 +156,7 @@ impl FileContext {
         }
     }
 
+    /// Validate relative importance by recorded activity
     fn is_high_priority(&self) -> bool {
         let high_risk_combination = file_signatures::get_high_value_flag_combinations().iter().any(|combination|{
             combination.iter().all(|flag| {

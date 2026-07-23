@@ -32,6 +32,10 @@ use crate::cache::file_context_cache::{self, FileContextCache, FileTelemetryUpda
 use crate::communication::ipc::SendHandle;
 use crate::engine::signatures::file_signatures::{self, FileFlags};
 
+//==================================================
+// Kernel Sensor IO
+//==================================================
+
 pub fn ks_send_verdict(handle: HANDLE, mut verdict: GalateaVerdict) {
     let mut bytes_verdict: u32 = 0;
     let verdict_result = unsafe {
@@ -80,8 +84,9 @@ pub fn ks_register_agent(handle: HANDLE) -> Result<(), String> {
     }
 }
 
-///Filter stuff
-
+//==================================================
+// Kernel Filter IO
+//==================================================
 const GALATEA_FILTER_PORT_NAME: windows::core::PCWSTR = w!("\\GalateaFilterPort");
 
 #[repr(C)]

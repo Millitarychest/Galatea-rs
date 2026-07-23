@@ -42,6 +42,10 @@ use crate::{
 };
 pub use config::*;
 
+//========================================================
+//=======================GLOBALS==========================
+//========================================================
+
 static GLOBAL_LISTENER_HANDLE: AtomicUsize = AtomicUsize::new(0);
 static STATIC_RESULT_CACHE: OnceLock<StaticResultCache> = OnceLock::new();
 
@@ -49,9 +53,14 @@ static STATIC_RESULT_CACHE: OnceLock<StaticResultCache> = OnceLock::new();
 static FILE_CONTEXT_CACHE: OnceLock<FileContextCache> = OnceLock::new();
 static PROC_CONTEXT_CACHE: OnceLock<ProcessContextCache> = OnceLock::new();
 
-fn main() -> error::Result<()> {
-    // Setup file logging
+//========================================================
+//=======================ENTRY==========================
+//========================================================
 
+fn main() -> error::Result<()> {
+    //-----------------------------
+    // Setup logging configuration
+    //-----------------------------
     let current_dir = utils::exe_directory();
     let log_path = current_dir.join(LOG_FILE);
 
@@ -60,6 +69,11 @@ fn main() -> error::Result<()> {
     }
 
     mimic_log!("Initializing Galatea Agent...");
+
+    //-----------------------------
+    // Register Exit behaviours 
+    //-----------------------------
+
 
     if cfg!(debug_assertions) {
         if let Err(e) = ctrlc::set_handler(move || {
@@ -79,9 +93,16 @@ fn main() -> error::Result<()> {
         }
     }
 
+
+    //-----------------------------
+    // Load Driver
+    //-----------------------------
+
     init_driver()?;
 
-    // Setup Database Connection
+    //-----------------------------
+    // Setup Local Database Connection
+    //-----------------------------
     let db_path = current_dir.join(DB_FILE_NAME);
     let db_path_str = match db_path.to_str() {
         Some(path) => path,
@@ -96,7 +117,10 @@ fn main() -> error::Result<()> {
     let db_pool = db::init_db_pool(db_path_str)?;
     mimic_success!("Knowledge Base (Signatures) Loaded.");
 
+    //-----------------------------
     // Load Packer Signatures
+    //-----------------------------
+
     let mut sig_engine = PackerSignatureEngine::new();
     let sig_path = current_dir.join("userdb.txt");
     if sig_path.exists() {
@@ -117,7 +141,10 @@ fn main() -> error::Result<()> {
     }
     let sig_engine = Arc::new(sig_engine);
 
-    // prepare Ml engine
+    //-----------------------------
+    // Prepare Ml engine
+    //-----------------------------
+    
     let ml_path = current_dir.join("model.onnx");
     let ml_engine = if ml_path.exists() {
         mimic_log!("Loading AI Model from: {:?}", ml_path);
@@ -146,7 +173,9 @@ fn main() -> error::Result<()> {
     };
     let ml_engine = Arc::new(ml_engine);
 
-    //filter
+    //-----------------------------
+    // Register Filter Port
+    //-----------------------------
     let _filter_listener = match communication::driver::io::kf_connect_and_listen() {
         Ok(listener) => Some(listener),
         Err(e) => {
@@ -155,17 +184,25 @@ fn main() -> error::Result<()> {
         }
     };
 
-    // ETW Trace 
+    //-----------------------------
+    // Listen on ETW Trace 
+    //-----------------------------
+
     // var is only to keep lifetime for now.
     #[expect(unused_variables)]
     let trace = register_etw_consumers();
 
+    //-----------------------------
     // Setup worker threads
+    //-----------------------------
     let n_workers = 16; // Adjust
     let worker_pool = ThreadPool::new(n_workers);
     mimic_log!("Analysis Engine: {} Workers ready.", n_workers);
 
-    // Event loop
+
+    //-----------------------------
+    // Prep Driver Listner 
+    //-----------------------------
     let device_name = w!("\\\\.\\Galatea");
     let listener_handle = unsafe {
         CreateFileW(
@@ -215,6 +252,10 @@ fn main() -> error::Result<()> {
 
     GLOBAL_LISTENER_HANDLE.store(listener_handle.0 as usize, Ordering::SeqCst);
 
+    //-----------------------------
+    // Register Driver Listener
+    //-----------------------------
+
     if let Err(_) = communication::driver::io::ks_register_agent(control_handle) {
         mimic_error!("CRITICAL: Agent Registration Failed.");
         mimic_error!("This usually means another Agent instance is already running.");
@@ -226,18 +267,26 @@ fn main() -> error::Result<()> {
 
     let safe_handle = SendHandle::from(control_handle);
 
-    // Initialize IPC server
+    //-----------------------------
+    // Initialize GUI Client IPC server
+    //-----------------------------
+
     let ipc_sender = IpcServer::start();
 
     mimic_success!("Galatea Systems: Online");
     mimic_log!("(Press Ctrl+C to stop the agent)");
 
-    // register
-
+    //-----------------------------
+    // Register with Babel Server
+    //-----------------------------
     if let Err(e) = communication::network::server::register_with_server(config::SERVER_URI) {
         mimic_error!("Failed to register with server: {}", e);
     }
 
+
+    //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    // Event loop
+    //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     let context_cache = PROC_CONTEXT_CACHE.get_or_init(ProcessContextCache::new);
 
     mimic_log!("Entering kernel event wait loop.");
@@ -245,6 +294,9 @@ fn main() -> error::Result<()> {
         let mut event: GalateaEvent = unsafe { std::mem::zeroed() };
         let mut bytes_returned: u32 = 0;
 
+        //-----------------------------
+        // Send inverse Event
+        //-----------------------------
         let result = unsafe {
             DeviceIoControl(
                 listener_handle,
@@ -273,7 +325,9 @@ fn main() -> error::Result<()> {
                     .trim_matches(char::from(0))
                     .to_string();
 
-                // insert the attempt into context
+                //-----------------------------
+                // Insert the attempt into the Process context
+                //-----------------------------
                 let proc_content_update = ProcessContextUpdate {
                     pid: Some(event.process_id),
                     process_start_key: None,
@@ -284,7 +338,9 @@ fn main() -> error::Result<()> {
                 };
                 context_cache.write_telemetry(event.ga_pid, proc_content_update);
 
-                // move to analysis pipeline
+                //-----------------------------
+                // Trigger static analysis
+                //-----------------------------
                 let worker_handle = safe_handle.clone();
                 let worker_db = db_pool.clone();
                 let worker_sig = sig_engine.clone();
@@ -293,7 +349,7 @@ fn main() -> error::Result<()> {
                 let worker_event = event;
 
                 worker_pool.execute(move || {
-                    static_analyzer::analyze_event(
+                    static_analyzer::analyze_ks_event(
                         worker_event,
                         worker_handle,
                         worker_db,
@@ -324,7 +380,9 @@ fn cleanup() {
 }
 
 fn init_driver() -> error::Result<()> {
-    // increase process prio
+    //-----------------------------
+    // Increase process prio
+    //-----------------------------
     unsafe {
         let current_process = windows::Win32::System::Threading::GetCurrentProcess();
         let _ = windows::Win32::System::Threading::SetPriorityClass(
@@ -333,7 +391,9 @@ fn init_driver() -> error::Result<()> {
         );
     }
 
-    //setup driver
+    //-----------------------------
+    // Load the Driver file
+    //-----------------------------
     if !privilege::is_elevated() {
         mimic_error!(
             "Elevation Required: Galatea Agent must run as Administrator to load drivers."

@@ -24,6 +24,7 @@ impl PackerSignatureEngine {
         }
     }
 
+    /// Load signature base from file
     pub fn load(&mut self, path: &str) -> error::Result<()> {
         let file = File::open(path).map_err(|e| e.to_string())?;
         let reader = BufReader::new(file);
@@ -83,6 +84,7 @@ impl PackerSignatureEngine {
         Ok(())
     }
 
+    /// Check if the bin patterns of a file allign with a known packer
     pub fn scan(&self, pe: &PE, buffer: &[u8]) -> Option<String> {
         let ep_offset = match find_entry_point_offset(pe) {
             Some(o) => o,

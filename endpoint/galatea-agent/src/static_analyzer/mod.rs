@@ -71,7 +71,7 @@ enum StageOutcome {
     Allow,
 }
 
-pub fn analyze_event(
+pub fn analyze_ks_event(
     event: GalateaEvent,
     driver: ipc::SendHandle,
     db_pool: DbPool,
@@ -79,6 +79,9 @@ pub fn analyze_event(
     ml_engine: Arc<Option<MlEngine>>,
     ipc_sender: Option<Sender<IpcMessage>>,
 ) {
+    //-----------------------------
+    // Normalize the kernel path 
+    //-----------------------------
     let raw_path = String::from_utf16_lossy(&event.image_path)
         .trim_matches(char::from(0))
         .to_string();
@@ -87,7 +90,15 @@ pub fn analyze_event(
         Err(_) => raw_path,
     };
 
+
     if event.frozen {
+        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        // Normal process start events
+        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+        //-----------------------------
+        // Grab file info 
+        //-----------------------------
         let (last_write, file_size) = match fs::metadata(&image_path) {
             Ok(meta) => {
                 let time = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
@@ -104,7 +115,10 @@ pub fn analyze_event(
             }
         };
 
-        // Attempt to reuse a cached or in-flight scan result
+        //-----------------------------
+        // Attempt to reuse a cached 
+        // or in-flight scan result
+        //-----------------------------
         let scan_guard;
         if file_size > 0 {
             let cache = STATIC_RESULT_CACHE.get_or_init(StaticResultCache::new);
@@ -132,7 +146,10 @@ pub fn analyze_event(
                             broadcast_static_process_verdict(result, driver, ipc_sender.as_ref());
                             return;
                         }
-                        // Timed out or failed — re-acquire a fresh scan slot
+                        //-----------------------------
+                        // Timed out or failed 
+                        // re-acquire a fresh scan slot
+                        //-----------------------------
                         WaitResult::Failed | WaitResult::Timeout => {
                             mimic_log!(
                                 "[SCAN] In-flight scan failed/timed out, re-acquiring scan slot"
@@ -206,6 +223,13 @@ pub fn analyze_event(
             return;
         }
 
+        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        // Analyze the image
+        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+        //-----------------------------
+        // Aquire file handle and prep state
+        //-----------------------------
         let mut ctx = AnalysisResult::new(event);
         ctx.size = file_size;
         ctx.mod_time = last_write;
@@ -229,6 +253,11 @@ pub fn analyze_event(
             return;
         }
 
+        //-----------------------------
+        // Run the scan pipeline
+        //-----------------------------
+
+
         let stages: &[&dyn Fn(&mut AnalysisResult) -> StageOutcome] = &[
             &|ctx| stage_signature_check(ctx, &db_pool, &image_path),
             &|ctx| stage_authenticode_check(ctx, &image_path),
@@ -250,6 +279,10 @@ pub fn analyze_event(
             }
         }
 
+        //-----------------------------
+        // Determine Result 
+        //-----------------------------
+
         let completed_scan = CompletedScan {
             details: DetectionDetails {
                 threat_score: ctx.threat_score,
@@ -264,6 +297,9 @@ pub fn analyze_event(
             file_index: get_file_index(&image_path),
         };
 
+        //-----------------------------
+        // Cache Result
+        //-----------------------------
         let file_cache = FILE_CONTEXT_CACHE.get_or_init(FileContextCache::new);
         let scan_key = FileContextKey::from_identity(&image_path, completed_scan.file_index);
         let _ = file_cache.write_scan_summary(scan_key, ScanSummary::from(&completed_scan));
@@ -271,7 +307,9 @@ pub fn analyze_event(
         // Promote result into the static-result cache and wake any waiters.
         scan_guard.complete(completed_scan);
 
+        //-----------------------------
         // Inject hook DLL if process was allowed
+        //-----------------------------
         if ctx.verdict_allow {
             let current_dir = utils::exe_directory();
             let dll_path = current_dir.join(HOOK_FILE_NAME);
@@ -286,15 +324,26 @@ pub fn analyze_event(
             }
         }
 
+        //-----------------------------
+        // Send Verdict
+        //-----------------------------
         broadcast_static_process_verdict(ctx, driver, ipc_sender.as_ref());
     } else {
+        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        // Fast track system* processes  
+        //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        // This path exists for system stability 
+        //(might not be as needed since we have a cache now?)
         mimic_log!(
             "[FAST] PID: {:<6} | Image: {}",
             event.process_id,
             image_path
         );
 
-        // Optionally report system processes to the UI (no verdict, no scan)
+        //-----------------------------
+        // Report system processes to the UI 
+        // (no verdict, no scan)
+        //-----------------------------
         if crate::SHOW_SYSTEM_PROCESSES {
             if let Some(ref sender) = ipc_sender {
                 let process_info_data =
