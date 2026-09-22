@@ -8,18 +8,11 @@ use windows::Win32::{
     },
 };
 
-use crate::{etw::events, identity::current_ga_pid, ssn::SYSCALL_NUMBER};
-
-fn ga_pid_parts(ga_pid: &galatea_shared::id::GA_PID) -> (u64, u64) {
-    let bytes = ga_pid.as_bytes();
-    let mut lo_bytes = [0u8; 8];
-    let mut hi_bytes = [0u8; 8];
-
-    lo_bytes.copy_from_slice(&bytes[..8]);
-    hi_bytes.copy_from_slice(&bytes[8..]);
-
-    (u64::from_le_bytes(lo_bytes), u64::from_le_bytes(hi_bytes))
-}
+use crate::{
+    etw::events,
+    identity::{current_ga_pid, ga_pid_parts},
+    ssn::SYSCALL_NUMBER,
+};
 
 
 

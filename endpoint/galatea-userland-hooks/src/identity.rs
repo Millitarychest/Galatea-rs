@@ -101,3 +101,15 @@ pub(crate) fn current_ga_pid() -> Option<galatea_shared::id::GA_PID> {
     let _ = CURRENT_GA_PID.set(ga_pid);
     CURRENT_GA_PID.get().copied()
 }
+
+/// Extracts the low and high 64-bit halves of a GA_PID for ETW emission.
+pub(crate) fn ga_pid_parts(ga_pid: &galatea_shared::id::GA_PID) -> (u64, u64) {
+    let bytes = ga_pid.as_bytes();
+    let mut lo_bytes = [0u8; 8];
+    let mut hi_bytes = [0u8; 8];
+
+    lo_bytes.copy_from_slice(&bytes[..8]);
+    hi_bytes.copy_from_slice(&bytes[8..]);
+
+    (u64::from_le_bytes(lo_bytes), u64::from_le_bytes(hi_bytes))
+}
