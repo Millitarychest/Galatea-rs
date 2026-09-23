@@ -25,6 +25,26 @@ pub enum FileFlags {
     RenamedToExecutable,
 }
 
+// access masks
+
+pub fn get_high_value_flags() -> Vec<FileFlags>{
+    return vec![
+        FileFlags::BlackListed,
+        FileFlags::StaticScanMalicious,
+        FileFlags::StaticScanSuspicious
+    ];
+}
+
+pub fn get_high_value_flag_combinations() -> Vec<Vec<FileFlags>>{
+    return vec![
+        // Temp file made executable
+        vec![FileFlags::InTempLocation, FileFlags::RenamedToExecutable],
+        // Executable created in AutoStartLocation
+        vec![FileFlags::InAutoStartLocation, FileFlags::RenamedToExecutable]
+    ];
+}
+
+
 // Regex Matchers
 #[derive(Debug)]
 struct RuleSpec {
@@ -92,6 +112,8 @@ fn normalize_location_path(path: &str) -> String {
         path
     }
 }
+
+
 
 ////
 

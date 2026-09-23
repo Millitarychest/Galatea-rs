@@ -6,6 +6,10 @@
 #[cfg(any(feature = "client_ipc", feature = "agent_ipc"))]
 extern crate alloc;
 
+// Identity stuff
+
+pub mod id;
+
 // Agent and driver
 
 /// Agent IOCTL request for current process creation events
@@ -17,7 +21,9 @@ pub const IOCTL_REGISTER_AGENT: u32 = 0x80002008;
 
 /// Struct used to send a process creation event via IOCTL
 #[repr(C)]
-pub struct GalateaEvent {
+pub struct GalateaProcEvent {
+    /// Galatea GUID
+    pub ga_pid : id::GA_PID,
     /// Process ID
     pub process_id: u64,
     /// Request ID used for tracking of verdicts in kernel mode
@@ -26,6 +32,8 @@ pub struct GalateaEvent {
     pub frozen: bool,
     /// Image Path of the process
     pub image_path: [u16; 260],
+    /// Set to true if the process is exiting, in which case image_path (null) and frozen (false) are not valid fields
+    pub exiting: bool
 }
 
 /// Struct used to send a process creation verdict via IOCTL

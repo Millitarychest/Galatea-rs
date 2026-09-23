@@ -41,3 +41,7 @@ pub const ML_MALICIOUS: i32 = 40;
 
 // Log Targets
 pub const LOG_FILE: &str = "galatea.log";
+
+// ETW
+pub const ETW_HOOK_PROVIDER_UUID: &str = "722c7445-b4c2-538b-b843-e87b14e249d1";
+pub const ETW_HOOK_PROVIDER_NAME: &str = "mimicry.galatea_hooks";

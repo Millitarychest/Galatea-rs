@@ -10,7 +10,14 @@ use windows::Win32::System::Threading::{
     PROCESS_VM_OPERATION, PROCESS_VM_WRITE,
 };
 use windows::core::s;
+
+/// Injects a Dll into a given Process
+//  Mostly intended for userland hooks
 pub fn inject_dll(pid: u64, dll_path: &str) -> error::Result<()> {
+    //-----------------------------
+    // Aquire handle to target
+    //-----------------------------
+
     let process_handle = unsafe {
         OpenProcess(
             PROCESS_VM_OPERATION
@@ -22,6 +29,10 @@ pub fn inject_dll(pid: u64, dll_path: &str) -> error::Result<()> {
         )
     }?;
 
+    //-----------------------------
+    // Resolve Paths and Function addrs
+    //-----------------------------
+
     let dll_path_c = CString::new(dll_path)?;
     let path_len = dll_path_c.as_bytes_with_nul().len();
 
@@ -31,6 +42,10 @@ pub fn inject_dll(pid: u64, dll_path: &str) -> error::Result<()> {
         None => mimic_bail!("Bad LoadLibraryA ptr"),
         Some(address) => address as *const (),
     };
+
+    //-----------------------------
+    // Prepare target Process
+    //-----------------------------
 
     let remote_buffer_addr = unsafe {
         VirtualAllocEx(
@@ -60,6 +75,10 @@ pub fn inject_dll(pid: u64, dll_path: &str) -> error::Result<()> {
     if buff_result.is_err() {
         mimic_bail!("Failed to write Memory");
     }
+
+    //-----------------------------
+    // Get Remote process to load our dll
+    //-----------------------------
 
     let load_library_fn_address: Option<unsafe extern "system" fn(*mut c_void) -> u32> =
         Some(unsafe { std::mem::transmute(load_library_fn_address) });
