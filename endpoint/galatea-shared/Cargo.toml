@@ -13,3 +13,4 @@ serde = { workspace = true, optional = true, features = ["derive", "alloc"] }
 serde_json = { workspace = true, optional = true, features = ["alloc"] }
 chrono = { workspace = true, optional = true, features = ["alloc", "serde"] }
 uuid = { workspace = true, optional = true, features = ["v4", "serde"] }
+sha1_smol = "1.0.1"

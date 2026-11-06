@@ -15,7 +15,7 @@ use core::sync::atomic::{AtomicPtr, Ordering};
 
 use crate::{AGENT_PROCESS, PENDING_IRP, PENDING_IRP_LOCK};
 use galatea_shared::{
-    GalateaEvent, GalateaVerdict, IOCTL_GET_EVENT, IOCTL_REGISTER_AGENT, IOCTL_SEND_VERDICT,
+    GalateaProcEvent, GalateaVerdict, IOCTL_GET_EVENT, IOCTL_REGISTER_AGENT, IOCTL_SEND_VERDICT,
 };
 
 /// IRP_MJ_CREATE / IRP_MJ_CLOSE handler — completes the IRP immediately with STATUS_SUCCESS.
@@ -60,7 +60,7 @@ pub unsafe extern "C" fn dispatch_device_control(
         IOCTL_GET_EVENT => {
             let mut irp_lock_handle: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
             let mut queue_lock_handle: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
-            let mut queued_event: Option<GalateaEvent> = None;
+            let mut queued_event: Option<GalateaProcEvent> = None;
 
             KeAcquireInStackQueuedSpinLock(&raw mut PENDING_IRP_LOCK, &mut irp_lock_handle);
 
@@ -84,10 +84,10 @@ pub unsafe extern "C" fn dispatch_device_control(
 
                 let stack = io_get_current_irp_stack_location(irp);
                 let output_len = (*stack).Parameters.DeviceIoControl.OutputBufferLength as usize;
-                if output_len >= core::mem::size_of::<GalateaEvent>() {
-                    let buffer = (*irp).AssociatedIrp.SystemBuffer as *mut GalateaEvent;
+                if output_len >= core::mem::size_of::<GalateaProcEvent>() {
+                    let buffer = (*irp).AssociatedIrp.SystemBuffer as *mut GalateaProcEvent;
                     *buffer = evt;
-                    (*irp).IoStatus.Information = core::mem::size_of::<GalateaEvent>() as u64;
+                    (*irp).IoStatus.Information = core::mem::size_of::<GalateaProcEvent>() as u64;
                     (*irp).IoStatus.__bindgen_anon_1.Status = STATUS_SUCCESS;
                 } else {
                     (*irp).IoStatus.__bindgen_anon_1.Status = wdk_sys::STATUS_BUFFER_TOO_SMALL;

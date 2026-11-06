@@ -31,7 +31,7 @@ use wdk_sys::{
     PCUNICODE_STRING, STATUS_SUCCESS, UNICODE_STRING,
 };
 
-use galatea_shared::GalateaEvent;
+use galatea_shared::GalateaProcEvent;
 
 mod apc;
 mod callback;
@@ -85,7 +85,7 @@ pub static REQUEST_ID_COUNTER: core::sync::atomic::AtomicU64 =
     core::sync::atomic::AtomicU64::new(1);
 
 // Event Buffer:
-static mut EVENT_QUEUE: Option<Vec<GalateaEvent>> = None;
+static mut EVENT_QUEUE: Option<Vec<GalateaProcEvent>> = None;
 static mut QUEUE_LOCK: KSPIN_LOCK = 0;
 
 // VerdictBuffer

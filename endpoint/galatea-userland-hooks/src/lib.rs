@@ -1,34 +1,68 @@
 use std::ffi::c_void;
-use windows::Win32::System::SystemServices::DLL_PROCESS_ATTACH;
+
 use windows::Win32::{
     Foundation::{GetLastError, HINSTANCE, STATUS_SUCCESS},
     System::{
         Memory::{PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS, VirtualProtect},
-        Threading::{CreateThread, THREAD_CREATION_FLAGS},
+        SystemServices::DLL_PROCESS_ATTACH,
+        Threading::{CreateThread, GetCurrentProcessId, THREAD_CREATION_FLAGS},
     },
 };
 
 mod addresses;
+mod error;
+mod etw;
+mod identity;
 mod ssn;
 mod stubs;
 mod threads;
+
 use crate::{
     addresses::StubAddresses,
-    ssn::SYSCALL_NUMBER,
-    threads::{resume_all_threads, suspend_all_threads},
+    error::HookError,
+    identity::{current_ga_pid, ga_pid_parts},
+    threads::suspend_all_threads,
 };
-// init
-unsafe extern "system" fn init_hooks(_: *mut c_void) -> u32 {
-    let suspended_handels = suspend_all_threads();
 
-    let stub_addresses = StubAddresses::new();
+fn try_init_hooks() -> Result<(), HookError> {
+    let _guard = suspend_all_threads()?;
 
-    patch(&stub_addresses);
+    // Force SSN resolution BEFORE patching ntdll in memory.
+    // If deferred, the LazyLock would read our own patched trampoline bytes (NOPs/jmp)
+    // instead of the original syscall preambles (0xb8d18b4c).
+    let _ = std::sync::LazyLock::force(&ssn::SYSCALL_NUMBER);
 
-    resume_all_threads(suspended_handels);
-    return STATUS_SUCCESS.0 as _;
+    let stub_addresses = StubAddresses::new()?;
+    let _ = current_ga_pid();
+    patch(&stub_addresses)?;
+
+    Ok(())
 }
 
+fn report_error(err: HookError) {
+    let pid = unsafe { GetCurrentProcessId() };
+    let (ga_pid_lo, ga_pid_hi) = match current_ga_pid() {
+        Some(ga_pid) => ga_pid_parts(&ga_pid),
+        None => (0, 0),
+    };
+    etw::events().etw_hook_init_failed(None, ga_pid_lo, ga_pid_hi, pid, err.error_code());
+}
+
+// init
+unsafe extern "system" fn init_hooks(_: *mut c_void) -> u32 {
+    if let Err(err) = try_init_hooks() {
+        report_error(err);
+    }
+
+    STATUS_SUCCESS.0 as _
+}
+
+/// DLL entry point called by the Windows loader.
+///
+/// # Safety
+///
+/// Invoked directly by the Windows dynamic linker (`ntdll.dll`).
+/// The caller guarantees `hinstance` and `reason` are valid loader parameters.
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
 pub unsafe extern "system" fn DllMain(
@@ -36,8 +70,8 @@ pub unsafe extern "system" fn DllMain(
     reason: u32,
     _reserved: *mut c_void,
 ) -> i32 {
-    match reason {
-        DLL_PROCESS_ATTACH => unsafe {
+    if reason == DLL_PROCESS_ATTACH {
+        unsafe {
             let _ = CreateThread(
                 None,
                 0,
@@ -46,17 +80,14 @@ pub unsafe extern "system" fn DllMain(
                 THREAD_CREATION_FLAGS(0),
                 None,
             );
-        },
-        _ => {}
+        }
     }
     1
 }
 
 #[unsafe(no_mangle)]
-fn patch(addresses: &StubAddresses) {
-    SYSCALL_NUMBER.get("ZwOpenProcess").unwrap();
-
-    for (_, item) in &addresses.addresses {
+fn patch(addresses: &StubAddresses) -> Result<(), HookError> {
+    for item in addresses.addresses.values() {
         let buffer: &[u8] = &[
             0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
             0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
@@ -74,9 +105,7 @@ fn patch(addresses: &StubAddresses) {
         }
         .is_err()
         {
-            panic!("[-] Failed to change protection. {}", unsafe {
-                GetLastError().0
-            }) // todo should not panic
+            return Err(HookError::VirtualProtectFailed(unsafe { GetLastError().0 }));
         }
 
         let addr = buffer.as_ptr();
@@ -127,9 +156,9 @@ fn patch(addresses: &StubAddresses) {
         }
         .is_err()
         {
-            panic!("[-] Failed to change protection. {}", unsafe {
-                GetLastError().0
-            }) // todo should not panic
+            return Err(HookError::VirtualProtectFailed(unsafe { GetLastError().0 }));
         }
     }
+
+    Ok(())
 }
