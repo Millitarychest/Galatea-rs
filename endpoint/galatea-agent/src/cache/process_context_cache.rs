@@ -1,10 +1,12 @@
 use std::sync::{Arc, RwLock};
 
 use galatea_shared::id::GA_PID;
-use mimic_core::{mimic_error, mimic_log};
+use mimic_core::mimic_error;
 use moka::policy::EvictionPolicy;
 
-use crate::{cache::file_context_cache::{FileContextKey, fsc_canonicalize_path}, engine::signatures::process_signatures};
+use crate::{
+    cache::file_context_cache::fsc_canonicalize_path, engine::signatures::process_signatures,
+};
 
 const PROCESS_CONTEXT_CACHE_CAPACITY: u64 = 10_000;
 const HIGH_PRIORITY_PROCESS_CONTEXT_CACHE_CAPACITY: u64 = 2_000;
@@ -25,12 +27,13 @@ pub struct ProcessContextUpdate {
     // Context key for the process image file.
     //pub image_context_key: Option<FileContextKey>,
     /// Flags matched during process runtime
-    pub matching_flags: Option<Vec<process_signatures::ProcessFlags>>
+    pub matching_flags: Option<Vec<process_signatures::ProcessFlags>>,
 }
 
 /// Contextual information about a process used during correlation.
 #[derive(Debug, Clone, Default)]
-pub struct ProcessContext { // TODO: Add something for process hirachy (PPID etc.)
+pub struct ProcessContext {
+    // TODO: Add something for process hirachy (PPID etc.)
     /// Windows-assigned process ID.
     pid: Option<u64>,
     /// Windows process start key.
@@ -44,7 +47,7 @@ pub struct ProcessContext { // TODO: Add something for process hirachy (PPID etc
     // Context key for the process image file.
     //image_context_key: Option<FileContextKey>,
     /// Flags matched during process runtime
-    matching_flags: Vec<process_signatures::ProcessFlags>
+    matching_flags: Vec<process_signatures::ProcessFlags>,
 }
 
 impl ProcessContext {
@@ -108,7 +111,7 @@ impl ProcessContext {
         //if let Some(image_context_key) = update.image_context_key {
         //    self.image_context_key = Some(image_context_key);
         //}
-        
+
         if let Some(flags) = update.matching_flags {
             self.apply_flags(flags);
         }
@@ -224,4 +227,3 @@ impl Default for ProcessContextCache {
         Self::new()
     }
 }
-

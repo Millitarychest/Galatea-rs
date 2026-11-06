@@ -136,7 +136,7 @@ Copy-Item $GuiBuildPath $GuiDistPath -Force
 $ModelInPath = "$ModelPath\$ModelName"
 $ModelFInPath = "$ModelPath\$ModelFName"
 $ModelOutPath = "$DistEndpointDir\$ModelName"
-$ModelFOutPath = "$DistEndpointDir\$ModelName"
+$ModelFOutPath = "$DistEndpointDir\$ModelFName"
 Write-Host "`n[i] Gathering provided model..." -ForegroundColor Cyan
 Copy-Item $ModelInPath $ModelOutPath -Force
 Copy-Item $ModelFInPath $ModelFOutPath -Force

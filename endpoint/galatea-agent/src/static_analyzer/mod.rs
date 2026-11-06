@@ -80,7 +80,7 @@ pub fn analyze_ks_event(
     ipc_sender: Option<Sender<IpcMessage>>,
 ) {
     //-----------------------------
-    // Normalize the kernel path 
+    // Normalize the kernel path
     //-----------------------------
     let raw_path = String::from_utf16_lossy(&event.image_path)
         .trim_matches(char::from(0))
@@ -90,14 +90,13 @@ pub fn analyze_ks_event(
         Err(_) => raw_path,
     };
 
-
     if event.frozen {
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         // Normal process start events
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
         //-----------------------------
-        // Grab file info 
+        // Grab file info
         //-----------------------------
         let (last_write, file_size) = match fs::metadata(&image_path) {
             Ok(meta) => {
@@ -116,7 +115,7 @@ pub fn analyze_ks_event(
         };
 
         //-----------------------------
-        // Attempt to reuse a cached 
+        // Attempt to reuse a cached
         // or in-flight scan result
         //-----------------------------
         let scan_guard;
@@ -125,9 +124,32 @@ pub fn analyze_ks_event(
             match cache.try_acquire_scan(&image_path, last_write, file_size) {
                 ScanOutcome::CacheHit(details) => {
                     let allow = details.threat_score <= crate::STAT_BLOCK_THRESHOLD;
+
+                    let e_pid = event.process_id.clone();
+
                     let result =
                         build_result_from_details(event, details, allow, file_size, last_write);
                     mimic_log!("[CACHE] Reusing cached result for {image_path}");
+
+                    //-----------------------------
+                    // Inject hook DLL if process was allowed
+                    //-----------------------------
+                    if allow {
+                        let current_dir = utils::exe_directory();
+                        let dll_path = current_dir.join(HOOK_FILE_NAME);
+                        match dll_path.to_str() {
+                            Some(path) => match inject_dll(e_pid as u64, path) {
+                                Ok(_) => mimic_log!("injected"),
+                                Err(e) => mimic_error!("Inject failed: {e}"),
+                            },
+                            None => {
+                                mimic_error!(
+                                    "Skipping hook injection due to non-UTF8 DLL path: {dll_path:?}"
+                                );
+                            }
+                        }
+                    }
+
                     broadcast_static_process_verdict(result, driver, ipc_sender.as_ref());
                     return;
                 }
@@ -136,6 +158,9 @@ pub fn analyze_ks_event(
                     match barrier.wait() {
                         WaitResult::Completed(scan) => {
                             let allow = scan.details.threat_score <= crate::STAT_BLOCK_THRESHOLD;
+
+                            let e_pid = event.process_id.clone();
+
                             let result = build_result_from_details(
                                 event,
                                 scan.details,
@@ -143,11 +168,31 @@ pub fn analyze_ks_event(
                                 scan.file_size,
                                 scan.mod_time,
                             );
+
+                            //-----------------------------
+                            // Inject hook DLL if process was allowed
+                            //-----------------------------
+                            if allow {
+                                let current_dir = utils::exe_directory();
+                                let dll_path = current_dir.join(HOOK_FILE_NAME);
+                                match dll_path.to_str() {
+                                    Some(path) => match inject_dll(e_pid as u64, path) {
+                                        Ok(_) => mimic_log!("injected"),
+                                        Err(e) => mimic_error!("Inject failed: {e}"),
+                                    },
+                                    None => {
+                                        mimic_error!(
+                                            "Skipping hook injection due to non-UTF8 DLL path: {dll_path:?}"
+                                        );
+                                    }
+                                }
+                            }
+
                             broadcast_static_process_verdict(result, driver, ipc_sender.as_ref());
                             return;
                         }
                         //-----------------------------
-                        // Timed out or failed 
+                        // Timed out or failed
                         // re-acquire a fresh scan slot
                         //-----------------------------
                         WaitResult::Failed | WaitResult::Timeout => {
@@ -158,9 +203,34 @@ pub fn analyze_ks_event(
                                 ScanOutcome::CacheHit(details) => {
                                     // Original owner finished between our timeout and re-acquire
                                     let allow = details.threat_score <= crate::STAT_BLOCK_THRESHOLD;
+
+                                    let e_pid = event.process_id.clone();
+
                                     let result = build_result_from_details(
                                         event, details, allow, file_size, last_write,
                                     );
+
+                                    //-----------------------------
+                                    // Inject hook DLL if process was allowed
+                                    //-----------------------------
+                                    if allow {
+                                        let current_dir = utils::exe_directory();
+                                        let dll_path = current_dir.join(HOOK_FILE_NAME);
+                                        match dll_path.to_str() {
+                                            Some(path) => match inject_dll(e_pid as u64, path) {
+                                                Ok(_) => mimic_log!("injected"),
+                                                Err(e) => {
+                                                    mimic_error!("Inject failed: {e}")
+                                                }
+                                            },
+                                            None => {
+                                                mimic_error!(
+                                                    "Skipping hook injection due to non-UTF8 DLL path: {dll_path:?}"
+                                                );
+                                            }
+                                        }
+                                    }
+
                                     broadcast_static_process_verdict(
                                         result,
                                         driver,
@@ -177,6 +247,9 @@ pub fn analyze_ks_event(
                                         WaitResult::Completed(scan) => {
                                             let allow = scan.details.threat_score
                                                 <= crate::STAT_BLOCK_THRESHOLD;
+
+                                            let e_pid = event.process_id.clone();
+
                                             let result = build_result_from_details(
                                                 event,
                                                 scan.details,
@@ -184,6 +257,30 @@ pub fn analyze_ks_event(
                                                 scan.file_size,
                                                 scan.mod_time,
                                             );
+
+                                            //-----------------------------
+                                            // Inject hook DLL if process was allowed
+                                            //-----------------------------
+                                            if allow {
+                                                let current_dir = utils::exe_directory();
+                                                let dll_path = current_dir.join(HOOK_FILE_NAME);
+                                                match dll_path.to_str() {
+                                                    Some(path) => {
+                                                        match inject_dll(e_pid as u64, path) {
+                                                            Ok(_) => mimic_log!("injected"),
+                                                            Err(e) => {
+                                                                mimic_error!("Inject failed: {e}")
+                                                            }
+                                                        }
+                                                    }
+                                                    None => {
+                                                        mimic_error!(
+                                                            "Skipping hook injection due to non-UTF8 DLL path: {dll_path:?}"
+                                                        );
+                                                    }
+                                                }
+                                            }
+
                                             broadcast_static_process_verdict(
                                                 result,
                                                 driver,
@@ -257,7 +354,6 @@ pub fn analyze_ks_event(
         // Run the scan pipeline
         //-----------------------------
 
-
         let stages: &[&dyn Fn(&mut AnalysisResult) -> StageOutcome] = &[
             &|ctx| stage_signature_check(ctx, &db_pool, &image_path),
             &|ctx| stage_authenticode_check(ctx, &image_path),
@@ -280,7 +376,7 @@ pub fn analyze_ks_event(
         }
 
         //-----------------------------
-        // Determine Result 
+        // Determine Result
         //-----------------------------
 
         let completed_scan = CompletedScan {
@@ -330,9 +426,9 @@ pub fn analyze_ks_event(
         broadcast_static_process_verdict(ctx, driver, ipc_sender.as_ref());
     } else {
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        // Fast track system* processes  
+        // Fast track system* processes
         //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        // This path exists for system stability 
+        // This path exists for system stability
         //(might not be as needed since we have a cache now?)
         mimic_log!(
             "[FAST] PID: {:<6} | Image: {}",
@@ -341,7 +437,7 @@ pub fn analyze_ks_event(
         );
 
         //-----------------------------
-        // Report system processes to the UI 
+        // Report system processes to the UI
         // (no verdict, no scan)
         //-----------------------------
         if crate::SHOW_SYSTEM_PROCESSES {
