@@ -33,7 +33,7 @@ pub unsafe extern "C" fn process_notify_routine(
                 process_id,
             );
             let req_id = REQUEST_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
-            notify_agent( process ,process_id as u64, req_id, null(), false, false);
+            notify_agent(process, process_id as u64, req_id, null(), false, true);
             return;
         }
     };
@@ -156,7 +156,7 @@ unsafe fn notify_agent(process: PEPROCESS, pid: u64, rid: u64, image: PCUNICODE_
         image_path: [0; 260],
         frozen,
         ga_pid,
-        exiting: false,
+        exiting,
     };
 
     if !image.is_null() && !(*image).Buffer.is_null() {
