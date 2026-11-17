@@ -1,7 +1,8 @@
 use core::ptr::{addr_of_mut, null};
 use core::sync::atomic::Ordering;
 use wdk_sys::ntddk::{
-    DbgPrint, IofCompleteRequest, KeAcquireInStackQueuedSpinLock, KeReleaseInStackQueuedSpinLock, PsGetProcessCreateTimeQuadPart
+    DbgPrint, IofCompleteRequest, KeAcquireInStackQueuedSpinLock, KeReleaseInStackQueuedSpinLock,
+    PsGetProcessCreateTimeQuadPart,
 };
 use wdk_sys::{
     BOOLEAN, HANDLE, IO_NO_INCREMENT, KLOCK_QUEUE_HANDLE, PCUNICODE_STRING, PEPROCESS,
@@ -32,8 +33,23 @@ pub unsafe extern "C" fn process_notify_routine(
                 b"Galatea: [EXIT]  PID: %p\0".as_ptr() as *const i8,
                 process_id,
             );
+            let pid = process_id as u64;
             let req_id = REQUEST_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
-            notify_agent(process, process_id as u64, req_id, null(), false, true);
+            notify_agent(process, pid, req_id, null(), false, true);
+
+            // Try Remove PID from targets in case it managed to bypass the thread creation (early exit because callback blocked etc.)
+
+            let mut lock: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
+
+            KeAcquireInStackQueuedSpinLock(&raw mut TARGET_LOCK, &mut lock);
+            let ptr = core::ptr::addr_of_mut!(TARGET_PIDS);
+            if let Some(list) = (*ptr).as_mut() {
+                if let Some(idx) = list.iter().position(|x| x.pid == pid) {
+                    list.remove(idx);
+                }
+            }
+            KeReleaseInStackQueuedSpinLock(&mut lock);
+
             return;
         }
     };
@@ -91,7 +107,14 @@ pub unsafe extern "C" fn process_notify_routine(
     }
 
     // Agent IO
-    notify_agent( process ,process_id as u64, req_id, info.ImageFileName, !fastpass, false);
+    notify_agent(
+        process,
+        process_id as u64,
+        req_id,
+        info.ImageFileName,
+        !fastpass,
+        false,
+    );
 }
 
 /// `PsSetCreateThreadNotifyRoutine` callback — checks whether the newly created thread belongs
@@ -133,7 +156,14 @@ pub unsafe extern "C" fn thread_notify_routine(
 
 // Helpers
 
-unsafe fn notify_agent(process: PEPROCESS, pid: u64, rid: u64, image: PCUNICODE_STRING, frozen: bool, exiting: bool) {
+unsafe fn notify_agent(
+    process: PEPROCESS,
+    pid: u64,
+    rid: u64,
+    image: PCUNICODE_STRING,
+    frozen: bool,
+    exiting: bool,
+) {
     // SAFETY: image is a valid PCUNICODE_STRING for the lifetime of this call (provided by the
     // kernel). Buffer is checked for null before slicing. PENDING_IRP and EVENT_QUEUE accesses
     // are all guarded by their respective spin locks.
@@ -142,12 +172,9 @@ unsafe fn notify_agent(process: PEPROCESS, pid: u64, rid: u64, image: PCUNICODE_
     let image_bytes: &[u8] = if image.is_null() || (*image).Buffer.is_null() {
         &[]
     } else {
-        core::slice::from_raw_parts(
-            (*image).Buffer.cast::<u8>(),
-            (*image).Length as usize,
-        )
+        core::slice::from_raw_parts((*image).Buffer.cast::<u8>(), (*image).Length as usize)
     };
-    
+
     let ga_pid = galatea_shared::id::generate_process_id(pid, image_bytes, creation_ticks);
 
     let mut event = GalateaProcEvent {

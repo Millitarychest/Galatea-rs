@@ -93,22 +93,24 @@ pub unsafe fn inject_freeze_apc(thread_id: HANDLE, pid: u64, rid: u64) {
     );
 
     if inserted == 0 {
-        // SAFETY: inserted == 0 means the APC was never queued and apc_normal_routine will
-        // never run, so we are the sole owner of ctx_ptr and can safely reclaim it.
-        let _ = Box::from_raw(ctx_ptr);
-
+        // SAFETY: inserted == 0 means the APC was never queued so neither the normal nor
+        // the rundown routine will run, and we are the sole owner of ctx_ptr.
+        // The PENDING_SCANS entry is removed (while the context is still allocated) before
+        // the context is freed, so no other CPU can KeSetEvent through a dangling event_ptr.
         {
             let mut lock_handle: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
             KeAcquireInStackQueuedSpinLock(addr_of_mut!(PENDING_SCANS_LOCK), &mut lock_handle);
 
             if let Some(list) = (*addr_of_mut!(PENDING_SCANS)).as_mut() {
-                if let Some(idx) = list.iter().position(|x| x.pid == pid) {
+                if let Some(idx) = list.iter().position(|x| x.request_id == rid) {
                     list.remove(idx);
                 }
             }
 
             KeReleaseInStackQueuedSpinLock(&mut lock_handle);
         }
+
+        let _ = Box::from_raw(ctx_ptr);
 
         APC_COUNT.fetch_sub(1, Ordering::SeqCst);
     }
@@ -121,7 +123,20 @@ unsafe extern "C" fn apc_rundown_routine(apc: *mut KAPC) {
     // called by the kernel when the thread is terminating before the APC fires; at that point
     // we are the sole owner and can safely drop it.
     let ctx_ptr = apc as *mut FreezeApcCtx;
-    let _ = Box::from_raw(ctx_ptr);
+    let ctx_obj = Box::from_raw(ctx_ptr);
+
+    {
+        let mut lock_handle: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
+        KeAcquireInStackQueuedSpinLock(addr_of_mut!(PENDING_SCANS_LOCK), &mut lock_handle);
+
+        if let Some(list) = (*addr_of_mut!(PENDING_SCANS)).as_mut() {
+            if let Some(idx) = list.iter().position(|x| x.request_id == ctx_obj.request_id) {
+                list.remove(idx);
+            }
+        }
+
+        KeReleaseInStackQueuedSpinLock(&mut lock_handle);
+    }
 
     APC_COUNT.fetch_sub(1, Ordering::SeqCst);
     DbgPrint(b"Galatea: APC Rundown (Thread died early).\0".as_ptr() as *const i8);
@@ -162,7 +177,7 @@ unsafe extern "C" fn apc_normal_routine(
             let mut lock: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
             KeAcquireInStackQueuedSpinLock(addr_of_mut!(crate::PENDING_SCANS_LOCK), &mut lock);
             if let Some(list) = (*addr_of_mut!(crate::PENDING_SCANS)).as_mut() {
-                if let Some(idx) = list.iter().position(|x| x.pid == ctx.pid) {
+                if let Some(idx) = list.iter().position(|x| x.request_id == ctx.request_id) {
                     list.remove(idx);
                 }
             }
@@ -198,7 +213,7 @@ unsafe extern "C" fn apc_normal_routine(
             KeAcquireInStackQueuedSpinLock(addr_of_mut!(PENDING_SCANS_LOCK), &mut lock_handle);
 
             if let Some(list) = (*addr_of_mut!(PENDING_SCANS)).as_mut() {
-                if let Some(idx) = list.iter().position(|x| x.pid == ctx.pid) {
+                if let Some(idx) = list.iter().position(|x| x.request_id == ctx.request_id) {
                     let item = list.remove(idx);
                     verdict = item.verdict;
                 }
@@ -213,7 +228,7 @@ unsafe extern "C" fn apc_normal_routine(
                 ctx.pid,
             );
             // TODO: Make dependen on agent status (If agent is registered fail-> block else allow so task manager etc or the agent can start)
-            //ZwTerminateProcess(core::ptr::null_mut(), STATUS_ACCESS_DENIED);
+            // ZwTerminateProcess(core::ptr::null_mut(), STATUS_ACCESS_DENIED);
         } else if verdict != STATUS_SUCCESS {
             DbgPrint(b"Galatea: BLOCK verdict received. Terminating.\0".as_ptr() as *const i8);
             should_terminate = true;
