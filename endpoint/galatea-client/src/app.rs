@@ -3,7 +3,7 @@ use iced::futures::stream;
 use iced::widget::{column, container};
 use iced::{Element, Task, Theme};
 use std::collections::{HashSet, VecDeque};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::ipc_client::{IpcClient, IpcClientMessage};
 use crate::theme::AppTheme;
@@ -11,6 +11,9 @@ use crate::ui;
 
 const MAX_DETECTIONS: usize = 1000;
 const FILE_CONTEXT_SNAPSHOT_LIMIT: usize = 500;
+// Cadence used to pull fresh snapshots while the Files tab is open, so
+// contexts fill in as the agent receives new telemetry.
+const FILE_CONTEXT_REFRESH_INTERVAL: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViewMode {
@@ -32,6 +35,7 @@ pub struct GalateaGui {
     file_contexts: Vec<FileContextSnapshot>,
     file_context_status: Option<String>,
     loading_file_contexts: bool,
+    last_file_refresh: Option<Instant>,
 }
 
 #[allow(dead_code)]
@@ -65,6 +69,7 @@ impl Default for GalateaGui {
             file_contexts: Vec::new(),
             file_context_status: None,
             loading_file_contexts: false,
+            last_file_refresh: None,
         }
     }
 }
@@ -159,8 +164,18 @@ impl GalateaGui {
             }
             Message::Tick => {
                 // Poll IPC client for new messages
-                while let Some(event) = self.ipc_client.try_recv() {
+                if let Some(event) = self.ipc_client.try_recv() {
                     return self.update(Message::IpcEvent(event));
+                }
+
+                // Keep the Files tab in sync with the agent's file context cache
+                if matches!(self.view_mode, ViewMode::FileContexts)
+                    && !self.loading_file_contexts
+                    && self
+                        .last_file_refresh
+                        .is_none_or(|refreshed| refreshed.elapsed() >= FILE_CONTEXT_REFRESH_INTERVAL)
+                {
+                    return self.refresh_file_contexts();
                 }
             }
         }
@@ -228,6 +243,7 @@ impl GalateaGui {
         }
 
         self.loading_file_contexts = true;
+        self.last_file_refresh = Some(Instant::now());
         self.file_context_status = Some("Refreshing file context cache...".to_string());
 
         Task::perform(

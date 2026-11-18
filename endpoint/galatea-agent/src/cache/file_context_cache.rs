@@ -289,17 +289,27 @@ impl FileContextCache {
     }
 
     /// Inserts or replaces the latest scan summary for a context identified by any known alias.
+    ///
+    /// `normalized_path` is the path the scan was performed on, kept in the
+    /// context so scan-only entries still have a displayable file path.
     pub fn write_scan_summary(
         &self,
         key: FileContextKey,
+        normalized_path: Option<String>,
         scan_summary: ScanSummary,
     ) -> Option<FileContext> {
         let mut aliases = HashSet::from([key.canonicalized()]);
         if let Some(file_index) = scan_summary.file_index {
             aliases.insert(FileContextKey::FileIndex(file_index));
         }
+        if let Some(path) = normalized_path.as_deref() {
+            aliases.insert(FileContextKey::Path(fsc_canonicalize_path(path)));
+        }
 
         self.update_context(aliases, None, |context| {
+            if let Some(path) = normalized_path {
+                context.normalized_file_path = Some(fsc_canonicalize_path(&path));
+            }
             if let Some(file_index) = scan_summary.file_index {
                 context.file_index = Some(file_index);
             }
@@ -729,6 +739,32 @@ mod tests {
             original_name: None,
             matching_flags: Some(vec![file_signatures::FileFlags::FileWriteSuccess]),
         }
+    }
+
+    #[test]
+    fn scan_summary_keeps_the_scanned_path() {
+        let cache = FileContextCache::with_capacities(10, 10, EvictionPolicy::lru());
+        let path = "C:\\test\\sample.exe";
+        let file_index = 46;
+
+        let summary = ScanSummary {
+            verdict: FileVerdict::Benign,
+            threat_score: 0,
+            file_size: 10,
+            mod_time: SystemTime::UNIX_EPOCH,
+            file_index: Some(file_index),
+        };
+        let _ = cache.write_scan_summary(
+            FileContextKey::from_identity(path, Some(file_index)),
+            Some(path.to_string()),
+            summary,
+        );
+
+        let by_path = cache.get_by_path(path);
+        assert!(by_path.as_ref().is_some_and(|context| {
+            context.normalized_file_path().is_some()
+                && context.file_index() == Some(file_index)
+        }));
     }
 
     #[test]

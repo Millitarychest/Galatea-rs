@@ -398,7 +398,11 @@ pub fn analyze_ks_event(
         //-----------------------------
         let file_cache = FILE_CONTEXT_CACHE.get_or_init(FileContextCache::new);
         let scan_key = FileContextKey::from_identity(&image_path, completed_scan.file_index);
-        let _ = file_cache.write_scan_summary(scan_key, ScanSummary::from(&completed_scan));
+        let _ = file_cache.write_scan_summary(
+            scan_key,
+            Some(image_path.clone()),
+            ScanSummary::from(&completed_scan),
+        );
 
         // Promote result into the static-result cache and wake any waiters.
         scan_guard.complete(completed_scan);
