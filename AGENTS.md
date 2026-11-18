@@ -21,6 +21,16 @@ For documentation please use ASD-STE100 Simplified Technical English.
 - The enpoint component is called "galatea" therefore all projects that are part of it shold be prefixed "galatea-"
 - The contral managment server is called "babel" therefore all projects that belong to the server should be prefixed "babel-"
 
+## Intent
+
+This project follows https://srcmd.org, with the Markdown in docs/intent.
+Read docs/intent/README.md first.
+
+- Each component has an intent file in docs/intent (endpoint/ and server/ subfolders) that captures purpose, data flow, design decisions and subtleties.
+- Change the intent Markdown before or with the code change that alters a component's design, then derive code and tests from it.
+- Write and keep the intent files in ASD-STE100 Simplified Technical English where possible: short sentences, one idea per sentence, active voice, present tense.
+- Keep the File Index in docs/intent/README.md in sync when you add or remove intent files.
+
 ## Skills:
 
 For domain specific knowledge and skills i have defined skills in the [.agent/skills](./.agent/skills) folder. This folder contains a subfolder for each skill. These contain the skill specific files, with the specific `SKILL.md` files acting as the entry point for the skills.
