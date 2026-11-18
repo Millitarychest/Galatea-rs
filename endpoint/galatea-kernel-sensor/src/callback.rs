@@ -1,4 +1,4 @@
-use core::ptr::{addr_of_mut, null};
+use core::ptr::addr_of_mut;
 use core::sync::atomic::Ordering;
 use wdk_sys::ntddk::{
     DbgPrint, IofCompleteRequest, KeAcquireInStackQueuedSpinLock, KeReleaseInStackQueuedSpinLock,
@@ -35,7 +35,19 @@ pub unsafe extern "C" fn process_notify_routine(
             );
             let pid = process_id as u64;
             let req_id = REQUEST_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
-            notify_agent(process, pid, req_id, null(), false, true);
+            // The create info is gone on exit, but the process object is still alive
+            // and referenced: retrieve its image path so the exit event carries the
+            // same identity as the creation event instead of hashing an empty path.
+            let image = crate::utils::locate_process_image_name(process);
+            if image.is_null() {
+                DbgPrint(
+                    b"Galatea: Failed to locate image of exiting PID %llu; exit identity may not match creation\0".as_ptr()
+                        as *const i8,
+                    pid,
+                );
+            }
+            notify_agent(process, pid, req_id, image, false, true);
+            crate::utils::release_process_image_name(image);
 
             // Try Remove PID from targets in case it managed to bypass the thread creation (early exit because callback blocked etc.)
 
@@ -187,9 +199,12 @@ unsafe fn notify_agent(
     frozen: bool,
     exiting: bool,
 ) {
-    // SAFETY: image is a valid PCUNICODE_STRING for the lifetime of this call (provided by the
-    // kernel). Buffer is checked for null before slicing. PENDING_IRP and EVENT_QUEUE accesses
-    // are all guarded by their respective spin locks.
+    // SAFETY: image is either a kernel-provided PCUNICODE_STRING (create path) or an
+    // image name owned by the caller and allocated via locate_process_image_name
+    // (exit path); in both cases it stays valid for the lifetime of this call. The
+    // caller frees the exit-path allocation after this returns. Buffer is checked
+    // for null before slicing. PENDING_IRP and EVENT_QUEUE accesses are all guarded
+    // by their respective spin locks.
 
     let creation_ticks = PsGetProcessCreateTimeQuadPart(process) as u64;
     let image_bytes: &[u8] = if image.is_null() || (*image).Buffer.is_null() {
