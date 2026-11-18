@@ -13,6 +13,7 @@ The project is split up into the following components:
     - [server](/server/server/) : This crate is the actual code of the server
     - [api-definitions](/server/api-definition/) : This crate defines the API interface definitions used for agent <-> server communication
 
+For documentation please use ASD-STE100 Simplified Technical English.
 
 ## Naming
 
@@ -30,4 +31,3 @@ For domain specific knowledge and skills i have defined skills in the [.agent/sk
 
 ## PR instructions
 - Title format: `[<component_name>:<feature_name>] <Title>`
-
