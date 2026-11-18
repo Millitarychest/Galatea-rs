@@ -146,11 +146,34 @@ pub unsafe extern "C" fn thread_notify_routine(
     };
 
     if let Some(rid) = found_req_id {
-        DbgPrint(
-            b"Galatea: Injecting APC into PID %p\0".as_ptr() as *const i8,
-            process_id,
-        );
-        apc::inject_freeze_apc(thread_id, pid, rid);
+        if !apc::inject_freeze_apc(thread_id, pid, rid) {
+            // The thread vanished before the injection completed (or the APC could not be
+            // queued). Re-queue the scan so a later thread of the same process still gets
+            // frozen; the process-exit purge removes this entry if no thread ever arrives.
+            let mut lock: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
+            KeAcquireInStackQueuedSpinLock(&raw mut TARGET_LOCK, &mut lock);
+            let ptr = core::ptr::addr_of_mut!(TARGET_PIDS);
+            if let Some(list) = (*ptr).as_mut() {
+                list.push(crate::TargetProcess {
+                    pid,
+                    request_id: rid,
+                });
+            }
+            KeReleaseInStackQueuedSpinLock(&mut lock);
+        }
+    } else if let Some(rid) = apc::find_pending_scan_rid(pid) {
+        // Second (or later) thread of a process whose scan is still pending: pin it to the
+        // in-flight scan so it cannot start outside the freeze. The event for this APC is
+        // signalled together with the others once the verdict arrives.
+        if !apc::inject_freeze_apc(thread_id, pid, rid) {
+            DbgPrint(
+                b"Galatea: Failed to pin thread %p of PID %p to pending scan %llu\0".as_ptr()
+                    as *const i8,
+                thread_id,
+                process_id,
+                rid,
+            );
+        }
     }
 }
 

@@ -34,7 +34,11 @@ struct FreezeApcCtx {
 
 /// Allocates a [`FreezeApcCtx`], queues a kernel APC into `thread_id`, and registers a pending
 /// scan entry so the APC can wait for an agent verdict before allowing the process to continue.
-pub unsafe fn inject_freeze_apc(thread_id: HANDLE, pid: u64, rid: u64) {
+///
+/// Returns `true` if the APC was armed; `false` if the thread could not be looked up or the APC
+/// could not be queued, in which case no APC will ever run and the caller is responsible for
+/// re-arming the scan (e.g. by re-queuing the TARGET_PIDS entry).
+pub unsafe fn inject_freeze_apc(thread_id: HANDLE, pid: u64, rid: u64) -> bool {
     // SAFETY: PsLookupThreadByThreadId increments the thread object's reference count.
     // We decrement it with ObfDereferenceObject before returning, so the lifetime is bounded.
     // Box::into_raw transfers ownership of the context to the APC; it is recovered via
@@ -42,7 +46,7 @@ pub unsafe fn inject_freeze_apc(thread_id: HANDLE, pid: u64, rid: u64) {
     let mut thread_obj: PETHREAD = core::ptr::null_mut();
     let status = PsLookupThreadByThreadId(thread_id, &mut thread_obj);
     if status != STATUS_SUCCESS {
-        return;
+        return false;
     }
 
     APC_COUNT.fetch_add(1, Ordering::SeqCst);
@@ -97,12 +101,16 @@ pub unsafe fn inject_freeze_apc(thread_id: HANDLE, pid: u64, rid: u64) {
         // the rundown routine will run, and we are the sole owner of ctx_ptr.
         // The PENDING_SCANS entry is removed (while the context is still allocated) before
         // the context is freed, so no other CPU can KeSetEvent through a dangling event_ptr.
+        // The entry is matched by its event pointer: several entries can share one request_id
+        // when multiple threads of a process are pinned to the same pending scan.
         {
             let mut lock_handle: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
             KeAcquireInStackQueuedSpinLock(addr_of_mut!(PENDING_SCANS_LOCK), &mut lock_handle);
 
             if let Some(list) = (*addr_of_mut!(PENDING_SCANS)).as_mut() {
-                if let Some(idx) = list.iter().position(|x| x.request_id == rid) {
+                if let Some(idx) = list.iter().position(|x| {
+                    x.request_id == rid && x.event_ptr == addr_of_mut!((*ctx_ptr).event)
+                }) {
                     list.remove(idx);
                 }
             }
@@ -113,9 +121,11 @@ pub unsafe fn inject_freeze_apc(thread_id: HANDLE, pid: u64, rid: u64) {
         let _ = Box::from_raw(ctx_ptr);
 
         APC_COUNT.fetch_sub(1, Ordering::SeqCst);
+        return false;
     }
 
     ObfDereferenceObject(thread_obj as PVOID);
+    true
 }
 
 unsafe extern "C" fn apc_rundown_routine(apc: *mut KAPC) {
@@ -123,14 +133,16 @@ unsafe extern "C" fn apc_rundown_routine(apc: *mut KAPC) {
     // called by the kernel when the thread is terminating before the APC fires; at that point
     // we are the sole owner and can safely drop it.
     let ctx_ptr = apc as *mut FreezeApcCtx;
-    let ctx_obj = Box::from_raw(ctx_ptr);
+    let mut ctx_obj = Box::from_raw(ctx_ptr);
 
     {
         let mut lock_handle: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
         KeAcquireInStackQueuedSpinLock(addr_of_mut!(PENDING_SCANS_LOCK), &mut lock_handle);
 
         if let Some(list) = (*addr_of_mut!(PENDING_SCANS)).as_mut() {
-            if let Some(idx) = list.iter().position(|x| x.request_id == ctx_obj.request_id) {
+            if let Some(idx) = list.iter().position(|x| {
+                x.request_id == ctx_obj.request_id && x.event_ptr == addr_of_mut!(ctx_obj.event)
+            }) {
                 list.remove(idx);
             }
         }
@@ -166,7 +178,7 @@ unsafe extern "C" fn apc_normal_routine(
     let mut should_terminate = false;
 
     // Early exit: Agent beat us — verdict is already in the cache.
-    let early_verdict = check_early_verdict(ctx.pid);
+    let early_verdict = check_early_verdict(ctx.request_id);
     if let Some(v) = early_verdict {
         DbgPrint(
             b"Galatea: PID %d used Cached Verdict: %x\0".as_ptr() as *const i8,
@@ -177,7 +189,9 @@ unsafe extern "C" fn apc_normal_routine(
             let mut lock: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
             KeAcquireInStackQueuedSpinLock(addr_of_mut!(crate::PENDING_SCANS_LOCK), &mut lock);
             if let Some(list) = (*addr_of_mut!(crate::PENDING_SCANS)).as_mut() {
-                if let Some(idx) = list.iter().position(|x| x.request_id == ctx.request_id) {
+                if let Some(idx) = list.iter().position(|x| {
+                    x.request_id == ctx.request_id && x.event_ptr == addr_of_mut!(ctx.event)
+                }) {
                     list.remove(idx);
                 }
             }
@@ -213,7 +227,9 @@ unsafe extern "C" fn apc_normal_routine(
             KeAcquireInStackQueuedSpinLock(addr_of_mut!(PENDING_SCANS_LOCK), &mut lock_handle);
 
             if let Some(list) = (*addr_of_mut!(PENDING_SCANS)).as_mut() {
-                if let Some(idx) = list.iter().position(|x| x.request_id == ctx.request_id) {
+                if let Some(idx) = list.iter().position(|x| {
+                    x.request_id == ctx.request_id && x.event_ptr == addr_of_mut!(ctx.event)
+                }) {
                     let item = list.remove(idx);
                     verdict = item.verdict;
                 }
@@ -264,7 +280,9 @@ pub unsafe fn apply_verdict(_pid: u64, req_id: u64, allow: bool) -> bool {
     KeAcquireInStackQueuedSpinLock(addr_of_mut!(crate::PENDING_SCANS_LOCK), &mut lock_handle);
 
     if let Some(list) = (*addr_of_mut!(crate::PENDING_SCANS)).as_mut() {
-        if let Some(item) = list.iter_mut().find(|x| x.request_id == req_id) {
+        // Several threads of one process can be pinned to the same pending scan, so every
+        // entry sharing this request_id gets the verdict and its event signalled.
+        for item in list.iter_mut().filter(|x| x.request_id == req_id) {
             item.verdict = if allow {
                 STATUS_SUCCESS
             } else {
@@ -326,6 +344,22 @@ unsafe fn check_early_verdict(req_id: u64) -> Option<NTSTATUS> {
     KeReleaseInStackQueuedSpinLock(&mut lock_handle);
 
     result
+}
+
+/// Returns the request id of the live pending scan for `pid`, if the process currently has a
+/// frozen scan awaiting a verdict. Used to pin additional threads of the process onto that scan.
+pub unsafe fn find_pending_scan_rid(pid: u64) -> Option<u64> {
+    // SAFETY: PENDING_SCANS access is guarded by PENDING_SCANS_LOCK.
+    let mut lock_handle: KLOCK_QUEUE_HANDLE = core::mem::zeroed();
+    KeAcquireInStackQueuedSpinLock(addr_of_mut!(PENDING_SCANS_LOCK), &mut lock_handle);
+
+    let rid = (*addr_of_mut!(PENDING_SCANS))
+        .as_ref()
+        .and_then(|list| list.iter().find(|x| x.pid == pid))
+        .map(|x| x.request_id);
+
+    KeReleaseInStackQueuedSpinLock(&mut lock_handle);
+    rid
 }
 
 // stubs
