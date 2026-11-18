@@ -43,3 +43,4 @@ windows = { workspace = true, features = [
     "Win32_Security_Cryptography_Sip",
 ] }
 regex.workspace = true
+ferrisetw = "1.2.0"

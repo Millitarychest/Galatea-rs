@@ -308,7 +308,15 @@ fn handle_command_client(pipe_handle: HANDLE) {
             }
         };
 
-        if !write_command_response(pipe_handle, json.as_bytes()) {
+        if write_command_response(pipe_handle, json.as_bytes()) {
+            // Block until the client closes its handle, so the teardown in
+            // run_command_server cannot discard response bytes the client
+            // has not read yet. The read fails with ERROR_BROKEN_PIPE once
+            // the client is done.
+            let mut drain = [0u8; 1];
+            let mut bytes_read: u32 = 0;
+            let _ = ReadFile(pipe_handle, Some(&mut drain), Some(&mut bytes_read), None);
+        } else {
             mimic_error!("[IPC] Failed to write command response");
         }
     }

@@ -246,3 +246,4 @@ server/babel-server/static/cert.pem
 server/babel-server/static/key.pem
 static/assets/server/galatea_server.db
 .gitignore
+.codex/config.toml

@@ -1,4 +1,4 @@
-use wdk_sys::{LARGE_INTEGER, PCUNICODE_STRING};
+use wdk_sys::{LARGE_INTEGER, PCUNICODE_STRING, PEPROCESS, PUNICODE_STRING};
 
 /// Converts an ASCII string literal into a `&[u16]` wide-string slice at compile time.
 ///
@@ -73,3 +73,41 @@ fn to_upper(c: u16) -> u16 {
         c
     }
 }
+
+/// Retrieves the image path of a process whose process object is still alive.
+///
+/// Used by the process-exit notification, where the create info (and its
+/// `ImageFileName`) is gone but the `PEPROCESS` is still referenced. Returns the
+/// same UTF-16 NT device path the create callback hashed, so the identity
+/// generated on exit matches the one generated on creation.
+///
+/// The returned image name is allocated from paged pool and must be released with
+/// [`release_process_image_name`]. Returns null when the lookup fails; callers
+/// should then fall back to hashing without an image path.
+pub unsafe fn locate_process_image_name(process: PEPROCESS) -> PUNICODE_STRING {
+    let mut image: PUNICODE_STRING = core::ptr::null_mut();
+
+    // SAFETY: process is a valid, referenced PEPROCESS for the duration of the call
+    // and image points to a valid stack location. Called at PASSIVE_LEVEL, which
+    // SeLocateProcessImageName requires (paged-pool allocation).
+    let status = crate::ffi::SeLocateProcessImageName(process, &mut image);
+    if status < 0 || image.is_null() {
+        return core::ptr::null_mut();
+    }
+    image
+}
+
+/// Frees an image name returned by [`locate_process_image_name`].
+pub unsafe fn release_process_image_name(image: PUNICODE_STRING) {
+    if image.is_null() {
+        return;
+    }
+
+    // SAFETY: the UNICODE_STRING and its Buffer were allocated from paged pool by
+    // SeLocateProcessImageName and are not accessed after this call.
+    if !(*image).Buffer.is_null() {
+        wdk_sys::ntddk::ExFreePool((*image).Buffer.cast());
+    }
+    wdk_sys::ntddk::ExFreePool(image.cast());
+}
+

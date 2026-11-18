@@ -32,6 +32,10 @@ use crate::cache::file_context_cache::{self, FileContextCache, FileTelemetryUpda
 use crate::communication::ipc::SendHandle;
 use crate::engine::signatures::file_signatures::{self, FileFlags};
 
+//==================================================
+// Kernel Sensor IO
+//==================================================
+
 pub fn ks_send_verdict(handle: HANDLE, mut verdict: GalateaVerdict) {
     let mut bytes_verdict: u32 = 0;
     let verdict_result = unsafe {
@@ -80,8 +84,9 @@ pub fn ks_register_agent(handle: HANDLE) -> Result<(), String> {
     }
 }
 
-///Filter stuff
-
+//==================================================
+// Kernel Filter IO
+//==================================================
 const GALATEA_FILTER_PORT_NAME: windows::core::PCWSTR = w!("\\GalateaFilterPort");
 
 #[repr(C)]
@@ -270,7 +275,7 @@ fn kf_listen_for_messages(port_handle: HANDLE, running: Arc<AtomicBool>) -> Resu
                         fs_cache.write_telemetry(key, update);
                     }
                     galatea_shared::filter_port::FSEventType::FileModify(fsops) => {
-                        mimic_log!("Modified something");
+                        //mimic_log!("Modified something");
                         match fsops {
                         // =========================================
                         // RENAME
@@ -293,7 +298,7 @@ fn kf_listen_for_messages(port_handle: HANDLE, running: Arc<AtomicBool>) -> Resu
 
                             let matching_flags = file_signatures::get_rename_flags(&normalized_path, &normalized_new_path);
 
-                            mimic_log!("[FILE_CONTEXT] rename_telemetry file : {normalized_path:?} to: {normalized_new_path:?}");
+                            //mimic_log!("[FILE_CONTEXT] rename_telemetry file : {normalized_path:?} to: {normalized_new_path:?}");
 
                             let update = FileTelemetryUpdate {
                                 normalized_file_path: Some(normalized_new_path),

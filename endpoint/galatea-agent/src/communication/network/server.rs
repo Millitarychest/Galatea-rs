@@ -6,6 +6,8 @@ use uuid::Uuid;
 
 use crate::config;
 
+/// POC Server register
+// TODO: When server exists make it actually do stuff 
 pub fn register_with_server(server_uri: &str) -> error::Result<()> {
     mimic_log!("----------------------------------------------------");
     mimic_log!("Registering with server");

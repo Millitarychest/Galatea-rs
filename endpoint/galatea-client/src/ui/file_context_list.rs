@@ -62,6 +62,7 @@ fn header_row<'a>(status: Option<&'a str>) -> Element<'a, Message> {
             text("File index").size(11).width(Length::Fixed(130.0)),
             text("Verdict").size(11).width(Length::Fixed(110.0)),
             text("Flags").size(11).width(Length::Fixed(180.0)),
+            text("Last writer").size(11).width(Length::FillPortion(2)),
             text(status.unwrap_or(""))
                 .size(11)
                 .width(Length::Fixed(136.0)),
@@ -114,6 +115,9 @@ fn file_context_row<'a>(
         text(format_flags(&context.matching_flags))
             .size(12)
             .width(Length::Fixed(180.0)),
+        text(format_optional_str(context.last_write_process.as_deref()))
+            .size(12)
+            .width(Length::FillPortion(2)),
         text("").size(12).width(Length::Fixed(136.0)),
         text(if expanded { "▼" } else { "▶" })
             .size(12)
@@ -172,6 +176,10 @@ fn expanded_details<'a>(context: &'a FileContextSnapshot) -> Element<'a, Message
         detail_row("Path", display_path(context)),
         detail_row("File Index", format_optional_u64(context.file_index)),
         detail_row("Flags", format_flags(&context.matching_flags)),
+        detail_row(
+            "Last Writer",
+            format_optional_str(context.last_write_process.as_deref())
+        ),
     ]
     .spacing(6)
     .padding(Padding {
@@ -181,9 +189,6 @@ fn expanded_details<'a>(context: &'a FileContextSnapshot) -> Element<'a, Message
         left: 20.0,
     });
 
-    if let Some(process) = &context.last_write_process {
-        details = details.push(detail_row("Last Writer", process.clone()));
-    }
     details = details.push(detail_row(
         "Last Write",
         format_optional_time(context.last_write_time.as_ref()),
@@ -192,9 +197,10 @@ fn expanded_details<'a>(context: &'a FileContextSnapshot) -> Element<'a, Message
         "Last Rename",
         format_optional_time(context.last_rename_time.as_ref()),
     ));
-    if let Some(original_name) = &context.original_name {
-        details = details.push(detail_row("Original Name", original_name.clone()));
-    }
+    details = details.push(detail_row(
+        "Original Name",
+        format_optional_str(context.original_name.as_deref()),
+    ));
     if let Some(summary) = &context.last_scan_summary {
         details = details.push(scan_summary_details(summary));
     }
@@ -308,10 +314,18 @@ fn file_context_matches(context: &FileContextSnapshot, filter: &str) -> bool {
 }
 
 fn display_path(context: &FileContextSnapshot) -> String {
+    // The cache key is rendered separately, so an unknown path gets a
+    // placeholder here instead of the key fallback.
     context
         .normalized_file_path
         .clone()
-        .unwrap_or_else(|| format_key(&context.key))
+        .unwrap_or_else(|| UNKNOWN_PLACEHOLDER.to_string())
+}
+
+const UNKNOWN_PLACEHOLDER: &str = "-";
+
+fn format_optional_str(value: Option<&str>) -> String {
+    value.unwrap_or(UNKNOWN_PLACEHOLDER).to_string()
 }
 
 fn format_flags(flags: &[FileFlagSnapshot]) -> String {

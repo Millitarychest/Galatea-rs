@@ -1,18 +1,23 @@
 use std::{arch::asm, ffi::c_void};
 
-use windows::{
-    Win32::{
-        Foundation::HANDLE,
-        System::{
-            Diagnostics::Debug::OutputDebugStringA,
-            Threading::{GetCurrentProcessId, GetProcessId},
-            WindowsProgramming::CLIENT_ID,
-        },
+use windows::Win32::{
+    Foundation::{HANDLE},
+    System::{
+        Threading::{GetCurrentProcessId, GetProcessId},
+        WindowsProgramming::CLIENT_ID,
     },
-    core::PCSTR,
 };
 
-use crate::ssn::SYSCALL_NUMBER;
+use crate::{
+    etw::events,
+    identity::{current_ga_pid, ga_pid_parts},
+    ssn::SYSCALL_NUMBER,
+};
+
+
+
+
+
 
 /// Injected stub for ZwOpenProcess and NtOpenProcess
 pub fn nt_open_process(
@@ -28,13 +33,17 @@ pub fn nt_open_process(
         // Currently only interested in foreign process handles..
         if target_pid != pid {
             println!("PID: {pid}, target: {target_pid}");
+
+            if let Some(ga_pid) = current_ga_pid() {
+                let (ga_pid_lo, ga_pid_hi) = ga_pid_parts(&ga_pid);
+
+                events().etw_process_handle_opened(None, ga_pid_lo, ga_pid_hi, pid, target_pid);
+            }
         }
     }
 
-    let msg = "Open Process Hook!\n\0";
-    unsafe {
-        OutputDebugStringA(PCSTR(msg.as_ptr()));
-    }
+    //let msg = "Open Process Hook!\n\0";
+    //unsafe {OutputDebugStringA(PCSTR(msg.as_ptr()));}
 
     let ssn = *SYSCALL_NUMBER
         .get("ZwOpenProcess")
@@ -70,18 +79,31 @@ pub fn virtual_alloc_ex(
 
     // send telemetry in the case of a remote allocation
     if pid != remote_pid {
-        let _region_size_checked = if region_size.is_null() {
+        let region_size_checked = if region_size.is_null() {
             0
         } else {
             // SAFETY: Null pointer checked above
             unsafe { *region_size }
         };
+        if let Some(ga_pid) = current_ga_pid() {
+            let (ga_pid_lo, ga_pid_hi) = ga_pid_parts(&ga_pid);
+
+            events().etw_virtual_mem_allocated(
+                None,
+                ga_pid_lo,
+                ga_pid_hi,
+                pid,
+                remote_pid,
+                base_address as usize,
+                region_size_checked,
+                allocation_type,
+                protect,
+            );
+        }
     }
 
-    let msg = "NTalloc!\n\0";
-    unsafe {
-        OutputDebugStringA(PCSTR(msg.as_ptr()));
-    }
+    //let msg = "NTalloc!\n\0";
+    //unsafe {OutputDebugStringA(PCSTR(msg.as_ptr()));}
 
     // proceed with the syscall
     let ssn = *SYSCALL_NUMBER
